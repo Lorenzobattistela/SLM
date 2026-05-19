@@ -1,0 +1,13 @@
+name: slm_70m
+vocab_size: 50257
+context_length: 1024
+d_model: 512
+n_layers: 14
+n_heads: 8
+n_kv_heads: 4
+ffn_dim: 1536
+dropout: 0.0
+rope_base: 10000.0
+tie_embeddings: true
+bias: false
+norm_eps: 1.0e-5

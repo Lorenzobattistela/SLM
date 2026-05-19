@@ -1,0 +1,23 @@
+name: fineweb_edu_debug
+dataset:
+  id: HuggingFaceFW/fineweb-edu
+  split: train
+  streaming: true
+  revision: null
+  name: null
+  text_field: null
+tokenizer:
+  name: gpt2
+  append_eot: true
+sampling:
+  target_train_tokens: 20000000
+  target_val_tokens: 100000
+  max_documents: 120000
+  min_document_tokens: 32
+split:
+  validation_ratio: 0.005
+  salt: slm-pretrain-v1
+storage:
+  output_dir: data/processed/pretrain_debug
+  shard_tokens: 1048576
+  manifest_path: data/manifests/pretrain_debug.json
