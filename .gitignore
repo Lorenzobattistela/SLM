@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+.DS_Store
+
+data/processed/
+data/manifests/*.json
+runs/
+*.pt
+*.png
+*.log
