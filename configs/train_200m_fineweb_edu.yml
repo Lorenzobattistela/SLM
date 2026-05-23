@@ -15,6 +15,7 @@ dataset:
   cache_dir: "data/cache"
   raw_dir: "data/raw"
   processed_dir: "data/processed"
+  tokenize_num_workers: 8
   filters:
     language: "en"
     language_score_min: 0.95
@@ -39,6 +40,7 @@ tokenizer:
   save_dir: "artifacts/tokenizer"
   train_samples: 2000000
   corpus_chunk_samples: 100000
+  corpus_num_workers: 8
   append_eos: true
   superbpe_stage1_vocab_size: 40000
   superbpe_num_inherit_merges: 40000

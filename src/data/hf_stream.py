@@ -151,8 +151,29 @@ def _load_dataset(dataset_cfg: dict[str, Any]):
     )
 
 
-def iter_dataset_samples(dataset_cfg: dict[str, Any]) -> Iterator[dict[str, Any]]:
+def iter_dataset_samples(
+    dataset_cfg: dict[str, Any],
+    *,
+    shard_index: int | None = None,
+    num_shards: int | None = None,
+) -> Iterator[dict[str, Any]]:
     dataset = _load_dataset(dataset_cfg)
+    if shard_index is not None or num_shards is not None:
+        if shard_index is None or num_shards is None:
+            raise ValueError("Both shard_index and num_shards must be set for dataset sharding.")
+        if num_shards <= 0:
+            raise ValueError("num_shards must be positive.")
+        if shard_index < 0 or shard_index >= num_shards:
+            raise ValueError("shard_index must be in [0, num_shards).")
+        if hasattr(dataset, "shard"):
+            dataset = dataset.shard(num_shards=num_shards, index=shard_index)
+        else:
+            dataset = (
+                sample
+                for index, sample in enumerate(dataset)
+                if index % num_shards == shard_index
+            )
+
     filters = dict(dataset_cfg.get("filters") or {})
     selection = dict(dataset_cfg.get("selection") or {})
     if hasattr(dataset, "shuffle") and selection.get("shuffle_before_filter", False):
@@ -180,12 +201,21 @@ def iter_dataset_samples(dataset_cfg: dict[str, Any]) -> Iterator[dict[str, Any]
     yield from samples
 
 
-def iter_dataset_texts(dataset_cfg: dict[str, Any]) -> Iterator[str]:
+def iter_dataset_texts(
+    dataset_cfg: dict[str, Any],
+    *,
+    shard_index: int | None = None,
+    num_shards: int | None = None,
+) -> Iterator[str]:
     text_field = dataset_cfg.get("text_field")
     if text_field is None:
         text_field = dataset_cfg.get("text_column")
 
-    for sample in iter_dataset_samples(dataset_cfg):
+    for sample in iter_dataset_samples(
+        dataset_cfg,
+        shard_index=shard_index,
+        num_shards=num_shards,
+    ):
         if text_field is None:
             text_field = _infer_text_field(sample, dataset_cfg.get("text_column"))
         text = sample.get(text_field)

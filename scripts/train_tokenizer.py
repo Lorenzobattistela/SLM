@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -40,18 +42,67 @@ def configure_logging() -> None:
     )
 
 
-def count_corpus_tokens(corpus_files: list[Path], tokenizer) -> tuple[int, int]:
+def _count_corpus_file(args: tuple[Path, dict, bool]) -> tuple[int, int]:
+    corpus_file, tokenizer_cfg, append_eos = args
+    tokenizer = load_superbpe_tokenizer(tokenizer_cfg)
+    return _count_corpus_tokens_file(corpus_file, tokenizer, append_eos=append_eos)
+
+
+def count_corpus_tokens(
+    corpus_files: list[Path],
+    tokenizer_cfg: dict,
+    *,
+    num_workers: int,
+) -> tuple[int, int]:
+    append_eos = bool(tokenizer_cfg.get("append_eos", True))
+    if num_workers <= 1 or len(corpus_files) <= 1:
+        samples = 0
+        tokens = 0
+        tokenizer = load_superbpe_tokenizer(tokenizer_cfg)
+        for corpus_file in corpus_files:
+            file_samples, file_tokens = _count_corpus_tokens_file(
+                corpus_file,
+                tokenizer,
+                append_eos=append_eos,
+            )
+            samples += file_samples
+            tokens += file_tokens
+        return samples, tokens
+
+    workers = min(num_workers, len(corpus_files))
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        counts = list(
+            executor.map(
+                _count_corpus_file,
+                [(path, tokenizer_cfg, append_eos) for path in corpus_files],
+            )
+        )
     samples = 0
     tokens = 0
-    for corpus_file in corpus_files:
-        with corpus_file.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                text = line.strip()
-                if not text:
-                    continue
-                samples += 1
-                tokens += len(tokenizer.encode(text, add_eos=True))
+    for file_samples, file_tokens in counts:
+        samples += file_samples
+        tokens += file_tokens
     return samples, tokens
+
+
+def _count_corpus_tokens_file(corpus_file: Path, tokenizer, *, append_eos: bool) -> tuple[int, int]:
+    samples = 0
+    tokens = 0
+    with corpus_file.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            text = line.strip()
+            if not text:
+                continue
+            samples += 1
+            tokens += len(tokenizer.encode(text, add_eos=append_eos))
+    return samples, tokens
+
+
+def configured_corpus_workers(tokenizer_cfg: dict) -> int:
+    env_value = os.environ.get("TOKENIZER_CORPUS_WORKERS")
+    if env_value is not None:
+        return max(1, int(env_value))
+    return max(1, int(tokenizer_cfg.get("corpus_num_workers", 1)))
 
 
 def main() -> None:
@@ -89,11 +140,14 @@ def main() -> None:
 
         save_dir = resolve_project_path(tokenizer_cfg["save_dir"])
         corpus_dir = save_dir / "training_corpus"
+        corpus_workers = configured_corpus_workers(tokenizer_cfg)
+        logger.info("Tokenizer corpus workers: %s", corpus_workers)
         corpus_stats = write_training_corpus(
             dataset_cfg,
             corpus_dir,
             max_samples=train_samples,
             chunk_samples=int(tokenizer_cfg.get("corpus_chunk_samples", 100_000)),
+            num_workers=corpus_workers,
         )
         logger.info("Samples processed: %s", corpus_stats.samples_seen)
         logger.info("Samples written for tokenizer training: %s", corpus_stats.samples_written)
@@ -108,8 +162,11 @@ def main() -> None:
         logger.info("Tokenizer artifacts saved to: %s", save_dir)
         logger.info("Tokenizer metadata: %s", save_dir / "tokenizer_metadata.json")
         logger.info("Vocab size: %s", metadata["vocab_size"])
-        tokenizer = load_superbpe_tokenizer(tokenizer_cfg)
-        counted_samples, counted_tokens = count_corpus_tokens(corpus_stats.files, tokenizer)
+        counted_samples, counted_tokens = count_corpus_tokens(
+            corpus_stats.files,
+            tokenizer_cfg,
+            num_workers=corpus_workers,
+        )
         logger.info("Samples tokenized for count: %s", counted_samples)
         logger.info("Tokens processed: %s", counted_tokens)
     except (RuntimeError, OSError, SuperBPEError) as exc:

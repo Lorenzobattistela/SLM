@@ -129,6 +129,7 @@ FineWeb-Edu data is configured in the `dataset` section.
 | `dataset.cache_dir` | Hugging Face datasets cache directory. |
 | `dataset.raw_dir` | Reserved raw-data directory for the project. |
 | `dataset.processed_dir` | Output directory for `train_tokens.bin`, `val_tokens.bin`, and `metadata.json`. |
+| `dataset.tokenize_num_workers` | Number of parallel processes used to tokenize dataset shards. Can be overridden with `TOKENIZE_DATASET_WORKERS`. |
 | `dataset.config_name` | Optional Hugging Face dataset configuration name, if a dataset variant needs one. |
 
 `scripts/train_tokenizer.py` streams up to `tokenizer.train_samples` documents
@@ -152,6 +153,7 @@ Tokenizer settings live in the `tokenizer` section.
 | `tokenizer.save_dir` | Directory for `tokenizer.json`, vocab/merge files, corpus chunks, and metadata. |
 | `tokenizer.train_samples` | Maximum number of FineWeb-Edu samples used to train the tokenizer. |
 | `tokenizer.corpus_chunk_samples` | Number of tokenizer-training samples per written corpus chunk file. |
+| `tokenizer.corpus_num_workers` | Number of parallel processes used to stream/filter/write tokenizer corpus shards. Can be overridden with `TOKENIZER_CORPUS_WORKERS`. |
 | `tokenizer.append_eos` | Whether dataset tokenization appends the configured EOS token to each sample. |
 | `tokenizer.superbpe_stage1_vocab_size` | Vocabulary size for SuperBPE stage 1. Must be positive and no larger than `tokenizer.vocab_size`. |
 | `tokenizer.superbpe_num_inherit_merges` | Number of stage-1 merges copied into the final SuperBPE stage. |

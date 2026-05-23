@@ -63,6 +63,20 @@ def _require_positive_int(
     return value
 
 
+def _require_optional_positive_int(
+    mapping: dict[str, Any],
+    path: str,
+    label: str | None = None,
+) -> int | None:
+    display_path = label or path
+    if path not in mapping:
+        return None
+    value = mapping[path]
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ConfigError(f"Config value must be a positive integer: {display_path}")
+    return value
+
+
 def _require_positive_number(
     mapping: dict[str, Any],
     path: str,
@@ -106,6 +120,11 @@ def validate_run_config(config: dict[str, Any]) -> None:
     _required(dataset, "streaming", "dataset.streaming")
     _require_positive_int(dataset, "target_train_tokens", "dataset.target_train_tokens")
     _require_positive_int(dataset, "validation_tokens", "dataset.validation_tokens")
+    _require_optional_positive_int(
+        dataset,
+        "tokenize_num_workers",
+        "dataset.tokenize_num_workers",
+    )
 
     tokenizer = _section(config, "tokenizer")
     tokenizer_type = _required(tokenizer, "type", "tokenizer.type")
@@ -113,6 +132,11 @@ def validate_run_config(config: dict[str, Any]) -> None:
         raise ConfigError("tokenizer.type must be 'superbpe'")
     _require_positive_int(tokenizer, "vocab_size", "tokenizer.vocab_size")
     _require_positive_int(tokenizer, "train_samples", "tokenizer.train_samples")
+    _require_optional_positive_int(
+        tokenizer,
+        "corpus_num_workers",
+        "tokenizer.corpus_num_workers",
+    )
     special_tokens = _require_mapping(tokenizer, "special_tokens", "tokenizer.special_tokens")
     for token_name in ("pad_token", "bos_token", "eos_token", "unk_token"):
         _required(special_tokens, token_name, f"tokenizer.special_tokens.{token_name}")
