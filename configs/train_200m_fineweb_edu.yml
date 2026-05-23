@@ -11,9 +11,21 @@ dataset:
   streaming: true
   target_train_tokens: 4000000000
   validation_tokens: 10000000
+  validation_salt: "slm-pretrain-v1"
   cache_dir: "data/cache"
   raw_dir: "data/raw"
   processed_dir: "data/processed"
+  filters:
+    language: "en"
+    language_score_min: 0.95
+    score_min: 3.8
+    token_count_min: 200
+    token_count_max: 4096
+  selection:
+    target_custom_tokens: 4000000000
+    shuffle: true
+    prioritize_quality: true
+    quality_buffer_size: 10000
 
 tokenizer:
   type: "superbpe"
@@ -35,8 +47,8 @@ tokenizer:
 
 model:
   architecture: "decoder_only_transformer"
-  target_parameters: 200000000
-  acceptable_min_parameters: 195000000
+  target_parameters: 192500000
+  acceptable_min_parameters: 190000000
   acceptable_max_parameters: 205000000
 
   positional_encoding: "rope"
@@ -49,11 +61,11 @@ model:
 
   vocab_size: 50000
   max_seq_len: 2048
-  n_layers: 12
+  n_layers: 14
   d_model: 960
   n_heads: 15
   num_kv_heads: 1
-  ffn_multiplier: 4
+  ffn_multiplier: 3
   multiple_of: 256
   norm_eps: 1.0e-5
   rope_theta: 10000.0
@@ -93,7 +105,7 @@ training:
 
   checkpointing:
     save_dir: "checkpoints/llm_200m_fineweb_edu"
-    save_every_steps: 1000
+    save_every_steps: 2000
     keep_last_n: 5
     resume_from: null
 

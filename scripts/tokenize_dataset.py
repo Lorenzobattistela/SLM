@@ -13,6 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.config import add_run_config_argument, load_config_from_args, resolve_project_path
 from src.data.fineweb_edu import iter_dataset_texts
+from src.data.split import is_validation_text
 from src.data.token_dataset import TokenBinWriter, write_metadata
 from src.tokenizer import SuperBPEError, load_superbpe_tokenizer
 
@@ -30,6 +31,17 @@ def configure_logging() -> None:
     )
 
 
+def validation_ratio_for_targets(dataset_cfg: dict, train_tokens: int, validation_tokens: int) -> float:
+    configured_ratio = dataset_cfg.get("validation_ratio")
+    if configured_ratio is not None:
+        ratio = float(configured_ratio)
+    else:
+        ratio = validation_tokens / max(1, train_tokens + validation_tokens)
+    if not 0.0 < ratio < 1.0:
+        raise ValueError("dataset.validation_ratio must be between 0 and 1 when configured.")
+    return ratio
+
+
 def main() -> None:
     configure_logging()
     args = parse_args()
@@ -45,6 +57,12 @@ def main() -> None:
 
     target_train_tokens = int(dataset_cfg["target_train_tokens"])
     target_validation_tokens = int(dataset_cfg["validation_tokens"])
+    validation_ratio = validation_ratio_for_targets(
+        dataset_cfg,
+        target_train_tokens,
+        target_validation_tokens,
+    )
+    validation_salt = str(dataset_cfg.get("validation_salt", "slm-pretrain-v1"))
 
     logger.info("Dataset name: %s", dataset_cfg["name"])
     logger.info("Dataset split: %s", dataset_cfg.get("split", "train"))
@@ -54,6 +72,8 @@ def main() -> None:
     logger.info("Tokenizer dir: %s", resolve_project_path(tokenizer_cfg["save_dir"]))
     logger.info("Target train tokens: %s", target_train_tokens)
     logger.info("Target validation tokens: %s", target_validation_tokens)
+    logger.info("Validation split ratio: %.8f", validation_ratio)
+    logger.info("Validation split salt: %s", validation_salt)
     logger.info("Output train path: %s", train_path)
     logger.info("Output validation path: %s", val_path)
 
@@ -87,12 +107,16 @@ def main() -> None:
                     continue
                 samples_tokenized += 1
 
-                if not val_writer.complete:
-                    result = val_writer.write(token_ids)
-                    token_ids = token_ids[result.written :]
-
-                if token_ids and not train_writer.complete:
+                send_to_validation = (
+                    not val_writer.complete
+                    and is_validation_text(stripped, validation_ratio, validation_salt)
+                )
+                if send_to_validation:
+                    val_writer.write(token_ids)
+                elif not train_writer.complete:
                     train_writer.write(token_ids)
+                elif not val_writer.complete:
+                    val_writer.write(token_ids)
 
                 if samples_seen % 1_000 == 0:
                     logger.info(
@@ -124,6 +148,8 @@ def main() -> None:
                 "samples_tokenized": samples_tokenized,
                 "skipped_empty": skipped_empty,
                 "append_eos": append_eos,
+                "validation_ratio": validation_ratio,
+                "validation_salt": validation_salt,
             }
 
         write_metadata(metadata_path, metadata)

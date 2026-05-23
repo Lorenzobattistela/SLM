@@ -89,20 +89,31 @@ def main() -> None:
     _run([python, "scripts/evaluate.py", "--run-config", run_config])
 
     metrics_path = Path(config["project"]["output_dir"]) / "logs" / "metrics.jsonl"
-    plot_path = Path(config["plots"]["output_dir"]) / "train_loss.png"
     if metrics_path.exists():
         _run(
             [
                 python,
-                "scripts/plot_train_loss.py",
-                "--metrics",
-                str(metrics_path),
-                "--output",
-                str(plot_path),
+                "scripts/plot_training.py",
+                "--run-config",
+                run_config,
             ]
         )
     else:
         logging.warning("Metrics file not found yet, skipping plot generation: %s", metrics_path)
+
+    checkpoint_path = Path(config["training"]["checkpointing"]["save_dir"]) / "latest.pt"
+    _run(
+        [
+            python,
+            "scripts/sample_checkpoint.py",
+            "--run-config",
+            run_config,
+            "--checkpoint",
+            str(checkpoint_path),
+            "--prompt",
+            "Scientific progress depends on",
+        ]
+    )
 
 
 if __name__ == "__main__":

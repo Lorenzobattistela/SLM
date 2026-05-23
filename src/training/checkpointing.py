@@ -33,9 +33,9 @@ def restore_rng_state(state: dict[str, Any] | None) -> None:
     if "numpy" in state:
         np.random.set_state(state["numpy"])
     if "torch" in state:
-        torch.set_rng_state(state["torch"])
+        torch.set_rng_state(state["torch"].cpu())
     if "cuda" in state and torch.cuda.is_available():
-        torch.cuda.set_rng_state_all(state["cuda"])
+        torch.cuda.set_rng_state_all([rng_state.cpu() for rng_state in state["cuda"]])
 
 
 def save_checkpoint(

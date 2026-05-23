@@ -140,6 +140,47 @@ def _save_training_checkpoint(
     rotate_checkpoints(save_dir, keep_last_n=int(checkpoint_cfg["keep_last_n"]))
 
 
+def _run_validation(
+    *,
+    state: DistributedState,
+    model: torch.nn.Module,
+    val_dataset: TokenBinDataset,
+    config: dict[str, Any],
+    metrics_path: Path,
+    batch_size: int,
+    device: torch.device,
+    precision: str,
+    step: int,
+    tokens_seen: int,
+) -> None:
+    if state.is_main_process:
+        eval_stats = evaluate_model(
+            unwrap_model(model),
+            val_dataset,
+            batch_size=batch_size,
+            device=device,
+            precision=precision,
+            max_batches=int(config["evaluation"]["eval_steps"]),
+        )
+        append_metrics(
+            metrics_path,
+            {
+                "step": step,
+                "tokens_seen": tokens_seen,
+                "validation_loss": eval_stats.loss,
+                "val_loss": eval_stats.loss,
+                "perplexity": eval_stats.perplexity,
+            },
+        )
+        LOGGER.info(
+            "step=%s validation_loss=%.4f perplexity=%.4f",
+            step,
+            eval_stats.loss,
+            eval_stats.perplexity,
+        )
+    barrier(state)
+
+
 def _run_training(config: dict[str, Any], state: DistributedState) -> None:
     training_cfg = config["training"]
     device = select_training_device(state)
@@ -210,6 +251,7 @@ def _run_training(config: dict[str, Any], state: DistributedState) -> None:
     )
 
     last_log_time = time.perf_counter()
+    last_eval_step: int | None = None
     try:
         while _should_continue(step, tokens_seen, training_cfg):
             model.train()
@@ -248,25 +290,34 @@ def _run_training(config: dict[str, Any], state: DistributedState) -> None:
             step += 1
             tokens_seen += tokens_per_step
             scheduler.step(step)
+            stop_after_step = not _should_continue(step, tokens_seen, training_cfg)
 
-            if state.is_main_process and step % int(config["logging"]["log_every_steps"]) == 0:
+            if (
+                state.is_main_process
+                and (step % int(config["logging"]["log_every_steps"]) == 0 or stop_after_step)
+            ):
                 elapsed = max(1.0e-9, time.perf_counter() - last_log_time)
                 step_elapsed = max(1.0e-9, time.perf_counter() - step_started)
                 last_log_time = time.perf_counter()
                 train_loss = accumulated_loss / grad_accum_steps
                 lr = float(scheduler.get_last_lr()[0])
+                max_tokens = training_cfg.get("max_tokens")
                 metrics = {
                     "step": step,
                     "tokens_seen": tokens_seen,
                     "train_loss": train_loss,
                     "learning_rate": lr,
                     "gradient_norm": grad_norm,
+                    "effective_batch_size": effective_batch,
+                    "tokens_per_step": tokens_per_step,
                     "tokens_per_second": tokens_per_step / step_elapsed,
                     "samples_per_second": effective_batch / step_elapsed,
                     "log_window_tokens_per_second": (
                         tokens_per_step * int(config["logging"]["log_every_steps"]) / elapsed
                     ),
                 }
+                if max_tokens is not None:
+                    metrics["token_progress"] = min(1.0, tokens_seen / int(max_tokens))
                 append_metrics(metrics_path, metrics)
                 LOGGER.info(
                     "step=%s loss=%.4f lr=%.6e tokens=%s grad_norm=%.4f tok/s=%.1f",
@@ -282,32 +333,19 @@ def _run_training(config: dict[str, Any], state: DistributedState) -> None:
                 bool(config["evaluation"].get("enabled", True))
                 and step % int(config["evaluation"]["eval_every_steps"]) == 0
             ):
-                if state.is_main_process:
-                    eval_stats = evaluate_model(
-                        unwrap_model(model),
-                        val_dataset,
-                        batch_size=micro_batch_size,
-                        device=device,
-                        precision=precision,
-                        max_batches=int(config["evaluation"]["eval_steps"]),
-                    )
-                    append_metrics(
-                        metrics_path,
-                        {
-                            "step": step,
-                            "tokens_seen": tokens_seen,
-                            "validation_loss": eval_stats.loss,
-                            "val_loss": eval_stats.loss,
-                            "perplexity": eval_stats.perplexity,
-                        },
-                    )
-                    LOGGER.info(
-                        "step=%s validation_loss=%.4f perplexity=%.4f",
-                        step,
-                        eval_stats.loss,
-                        eval_stats.perplexity,
-                    )
-                barrier(state)
+                _run_validation(
+                    state=state,
+                    model=model,
+                    val_dataset=val_dataset,
+                    config=config,
+                    metrics_path=metrics_path,
+                    batch_size=micro_batch_size,
+                    device=device,
+                    precision=precision,
+                    step=step,
+                    tokens_seen=tokens_seen,
+                )
+                last_eval_step = step
 
             if step % int(training_cfg["checkpointing"]["save_every_steps"]) == 0:
                 if state.is_main_process:
@@ -322,6 +360,24 @@ def _run_training(config: dict[str, Any], state: DistributedState) -> None:
                     )
                     LOGGER.info("Saved checkpoint at step=%s", step)
                 barrier(state)
+
+        if (
+            bool(config["evaluation"].get("enabled", True))
+            and step > 0
+            and last_eval_step != step
+        ):
+            _run_validation(
+                state=state,
+                model=model,
+                val_dataset=val_dataset,
+                config=config,
+                metrics_path=metrics_path,
+                batch_size=micro_batch_size,
+                device=device,
+                precision=precision,
+                step=step,
+                tokens_seen=tokens_seen,
+            )
 
         if state.is_main_process:
             save_dir = resolve_project_path(training_cfg["checkpointing"]["save_dir"])

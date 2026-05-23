@@ -1,49 +1,73 @@
-# Small Language Model - Pretraining Scaffold
+# 192M FineWeb-Edu Language Model
 
-This repository contains the first-stage pretraining pipeline for the Deep Learning II SLM project. The initial focus is a decoder-only Transformer trained with next-token prediction, plus the tooling needed to validate the pipeline locally on tiny datasets before launching larger runs on a Linux machine with NVIDIA GPUs.
+This project builds a decoder-only language model with an approximately 192M parameter target, close to the 200M upper bound, and a FineWeb-Edu pretraining pipeline. The main run is configured through YAML and is intended for a Linux machine with 2 NVIDIA GPUs.
 
-## Current Scope
+## Objective
 
-- Streaming data preparation from Hugging Face datasets
-- Deterministic train/validation split
-- SuperBPE tokenization for FineWeb-Edu with chunked token files
-- Decoder-only Transformer with RoPE, MQA, Flash Attention fallback, SwiGLU and RMSNorm
-- Pretraining loop with checkpointing, validation perplexity and text sampling
-- Tiny/debug/pilot/full presets for local and remote execution
+- Train an approximately 192M parameter decoder-only Transformer for next-token prediction.
+- Use SuperBPE tokenization without silently falling back to standard BPE.
+- Pretrain on FineWeb-Edu with a 4B token target.
+- Support full-pipeline and independent-step execution.
+- Preserve training plots and write practical project documentation under `docs/`.
+
+## Architecture
+
+The model uses RoPE positional encoding, Multi-Query Attention, Flash Attention when available with a safe fallback, SwiGLU feed-forward layers, RMSNorm, and a tied language-modeling head when enabled. The configured acceptable parameter range is 190M to 200M.
+
+Check the parameter count with:
+
+```bash
+python scripts/count_parameters.py --run-config configs/train_200m_fineweb_edu.yml
+```
+
+## Dataset And Tokens
+
+The main dataset is `HuggingFaceFW/fineweb-edu`. The token target follows the 20 tokens per parameter rule and rounds up slightly:
+
+```text
+192.4M parameters * 20 tokens per parameter ~= 3.85B training tokens
+Configured target = 4B training tokens
+```
+
+The main config writes processed token files to `data/processed/train_tokens.bin`, `data/processed/val_tokens.bin`, and `data/processed/metadata.json`.
 
 ## Environment
 
-Create a virtual environment and install dependencies:
-
 ```bash
-uv venv .venv
+uv venv --python /usr/bin/python3.12 .venv
 source .venv/bin/activate
 uv pip install -e ".[dev]"
 ```
 
-MacBook runs should stay on `tiny` or short `debug` checks. Real pretraining should run on the Linux box with CUDA.
-
-SuperBPE uses the official SuperBPE tokenizer backend, which is a custom fork of
-Hugging Face `tokenizers`. Install it in a dedicated environment before running
-the tokenizer scripts:
+Install the SuperBPE backend before tokenizer commands:
 
 ```bash
 git clone --recurse-submodules https://github.com/PythonNut/superbpe.git /tmp/superbpe
 pip install -e /tmp/superbpe/tokenizers_superbpe/bindings/python/
 ```
 
-The pipeline refuses to silently fall back to standard BPE. If the backend is
-missing, `scripts/train_tokenizer.py` and `scripts/tokenize_dataset.py` stop with
-a clear error.
+Use Python 3.10-3.12 for this project. The SuperBPE tokenizer fork depends on
+PyO3 0.21, which does not build against Python 3.13+.
 
-## Config Layout
+## YAML Config Usage
 
-- `configs/train_200m_fineweb_edu.yml`: YAML config for the 200M FineWeb-Edu run
-- `configs/model/`: architecture presets
-- `configs/data/`: dataset/token-budget presets
-- `configs/run/`: runnable training presets that compose model + data + optimizer settings
+The main config is `configs/train_200m_fineweb_edu.yml`. All modern scripts use:
 
-The 200M FineWeb-Edu flow uses the shared `--run-config` pattern:
+```bash
+--run-config configs/train_200m_fineweb_edu.yml
+```
+
+It contains `project`, `dataset`, `tokenizer`, `model`, `training`, `evaluation`, `logging`, and `plots` sections.
+
+## Full Pipeline
+
+```bash
+python scripts/run_all.py --run-config configs/train_200m_fineweb_edu.yml
+```
+
+`run_all.py` prepares the tokenizer/data, checks parameters, launches DDP when CUDA/NCCL is available, evaluates, generates plots, and prints a text completion from the latest checkpoint. If DDP cannot be launched safely, it prints the manual command.
+
+## Independent Steps
 
 ```bash
 python scripts/train_tokenizer.py --run-config configs/train_200m_fineweb_edu.yml
@@ -51,79 +75,61 @@ python scripts/tokenize_dataset.py --run-config configs/train_200m_fineweb_edu.y
 python scripts/count_parameters.py --run-config configs/train_200m_fineweb_edu.yml
 torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
 python scripts/evaluate.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/run_all.py --run-config configs/train_200m_fineweb_edu.yml
+python scripts/plot_training.py --run-config configs/train_200m_fineweb_edu.yml
+python scripts/sample_checkpoint.py --run-config configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
 ```
 
-The main FineWeb-Edu config targets 4B training tokens and 10M validation tokens.
-Tokenized outputs are written to `data/processed/train_tokens.bin`,
-`data/processed/val_tokens.bin`, and `data/processed/metadata.json`.
-The parameter counter builds the configured model and must report `Status: OK`
-inside the configured 195M-205M acceptable range before training.
-Training logs are written as JSONL metrics under
-`outputs/llm_200m_fineweb_edu/logs/metrics.jsonl`, and checkpoints are saved
-under `checkpoints/llm_200m_fineweb_edu/`.
-
-`scripts/run_all.py` prepares the tokenizer/data, checks the parameter count,
-and launches the configured DDP command when CUDA/NCCL is available. On a machine
-where DDP cannot be launched safely, it prints the exact `torchrun` command to
-run manually.
-
-For a small end-to-end check without changing the main 4B-token config, use:
+The DDP training command for the 2-GPU run is:
 
 ```bash
-python scripts/train_tokenizer.py --run-config configs/train_200m_fineweb_edu_debug.yml --force
-python scripts/tokenize_dataset.py --run-config configs/train_200m_fineweb_edu_debug.yml
+torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
 ```
 
-## Suggested Workflow
+## Metrics And Plots
 
-1. Prepare a tiny local dataset:
+Training metrics are written to:
+
+```text
+outputs/llm_200m_fineweb_edu/logs/metrics.jsonl
+```
+
+Plots are written to:
+
+```text
+outputs/llm_200m_fineweb_edu/plots/
+```
+
+Generate plots with:
 
 ```bash
-python3 scripts/prepare_pretrain_data.py --data-config configs/data/fineweb_edu_tiny.yaml
+python scripts/plot_training.py --run-config configs/train_200m_fineweb_edu.yml
 ```
 
-2. Overfit a single batch to validate the pipeline:
+The legacy `scripts/plot_train_loss.py` script is preserved for older metrics workflows.
+
+## Text Generation
+
+Generate qualitative completions from a trained checkpoint with:
 
 ```bash
-python3 scripts/smoke_overfit_batch.py --run-config configs/run/pretrain_local_tiny.yaml
+python scripts/sample_checkpoint.py --run-config configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
 ```
 
-3. Run a tiny local training session:
+## Documentation
 
-```bash
-python3 -m src.train.pretrain --run-config configs/run/pretrain_local_tiny.yaml
-```
+See `docs/` for practical notes:
 
-4. Sample from the latest checkpoint:
-
-```bash
-python3 scripts/sample_checkpoint.py \
-  --checkpoint runs/pretrain_local_tiny/checkpoints/latest.pt \
-  --prompt "Language models are useful because"
-```
-
-5. Plot training loss:
-
-```bash
-python3 scripts/plot_train_loss.py --metrics runs/pretrain_local_tiny/metrics.jsonl
-```
-
-## Remote GPU Runs
-
-Once the Linux machine is ready and the dataset has been prepared there, use:
-
-```bash
-bash scripts/launch_pretrain_ddp.sh configs/run/pretrain_remote_full_2gpu.yaml
-```
-
-This launches `torchrun` with the run config already set up for a 2-GPU pretraining job.
+- `docs/architecture.md`
+- `docs/dataset.md`
+- `docs/tokenizer.md`
+- `docs/training.md`
+- `docs/distributed_training.md`
+- `docs/configs.md`
+- `docs/running.md`
+- `docs/how-to-run.md`
 
 ## Notes
 
-- Generated artifacts live under `data/processed/` and `runs/`.
-- The full dataset should not be committed.
-- Checkpoints should be uploaded externally for the course delivery.
-- The 200M FineWeb-Edu path is configured for SuperBPE. Legacy tiny/debug
-  pretraining presets may still use the older GPT-2 tokenizer until those flows
-  are migrated.
+- Do not commit full datasets, checkpoints, or generated run artifacts.
+- Use the debug config for small local checks.
+- Do not claim a full training run is complete unless the training command has actually been run to completion.

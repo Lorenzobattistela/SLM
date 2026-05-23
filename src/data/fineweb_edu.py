@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from src.data.hf_stream import iter_dataset_texts as iter_filtered_dataset_texts
+
 LOGGER = logging.getLogger(__name__)
 
 try:
@@ -48,19 +50,9 @@ def iter_dataset_texts(
     *,
     max_samples: int | None = None,
 ) -> Iterator[str]:
-    dataset = load_configured_dataset(dataset_cfg)
-    text_column = dataset_cfg["text_column"]
-
-    for sample_index, sample in enumerate(dataset):
+    for sample_index, text in enumerate(iter_filtered_dataset_texts(dataset_cfg)):
         if max_samples is not None and sample_index >= max_samples:
             break
-        if text_column not in sample:
-            available = ", ".join(sorted(sample.keys()))
-            raise KeyError(
-                f"Configured text column {text_column!r} is missing from dataset sample. "
-                f"Available columns: {available}"
-            )
-        text = sample[text_column]
         if isinstance(text, str):
             yield text
 

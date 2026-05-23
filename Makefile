@@ -1,27 +1,47 @@
 PYTHON ?= python3
+RUN_CONFIG ?= configs/train_200m_fineweb_edu.yml
+DEBUG_CONFIG ?= configs/train_200m_fineweb_edu_debug.yml
+NPROC_PER_NODE ?= 2
+CHECKPOINT ?= checkpoints/llm_200m_fineweb_edu/latest.pt
+PROMPT ?= Scientific progress depends on
 
-.PHONY: install prepare-tiny prepare-debug smoke train-tiny train-smoke sample plot
+.PHONY: install train-tokenizer tokenize count train-ddp evaluate sample plot run-all debug-tokenizer debug-tokenize debug-count test
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
 
-prepare-tiny:
-	$(PYTHON) scripts/prepare_pretrain_data.py --data-config configs/data/fineweb_edu_tiny.yaml
+train-tokenizer:
+	$(PYTHON) scripts/train_tokenizer.py --run-config $(RUN_CONFIG)
 
-prepare-debug:
-	$(PYTHON) scripts/prepare_pretrain_data.py --data-config configs/data/fineweb_edu_debug.yaml
+tokenize:
+	$(PYTHON) scripts/tokenize_dataset.py --run-config $(RUN_CONFIG)
 
-smoke:
-	$(PYTHON) scripts/smoke_overfit_batch.py --run-config configs/run/pretrain_local_tiny.yaml
+count:
+	$(PYTHON) scripts/count_parameters.py --run-config $(RUN_CONFIG)
 
-train-tiny:
-	$(PYTHON) -m src.train.pretrain --run-config configs/run/pretrain_local_tiny.yaml
+train-ddp:
+	torchrun --standalone --nproc_per_node=$(NPROC_PER_NODE) scripts/train.py --run-config $(RUN_CONFIG)
 
-train-smoke:
-	$(PYTHON) -m src.train.pretrain --run-config configs/run/pretrain_remote_smoke.yaml
+evaluate:
+	$(PYTHON) scripts/evaluate.py --run-config $(RUN_CONFIG)
 
 sample:
-	$(PYTHON) scripts/sample_checkpoint.py --checkpoint runs/pretrain_local_tiny/checkpoints/latest.pt
+	$(PYTHON) scripts/sample_checkpoint.py --run-config $(RUN_CONFIG) --checkpoint $(CHECKPOINT) --prompt "$(PROMPT)"
 
 plot:
-	$(PYTHON) scripts/plot_train_loss.py --metrics runs/pretrain_local_tiny/metrics.jsonl
+	$(PYTHON) scripts/plot_training.py --run-config $(RUN_CONFIG)
+
+run-all:
+	$(PYTHON) scripts/run_all.py --run-config $(RUN_CONFIG)
+
+debug-tokenizer:
+	$(PYTHON) scripts/train_tokenizer.py --run-config $(DEBUG_CONFIG)
+
+debug-tokenize:
+	$(PYTHON) scripts/tokenize_dataset.py --run-config $(DEBUG_CONFIG)
+
+debug-count:
+	$(PYTHON) scripts/count_parameters.py --run-config $(DEBUG_CONFIG)
+
+test:
+	$(PYTHON) -m pytest
