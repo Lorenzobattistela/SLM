@@ -319,9 +319,13 @@ def _run_training(config: dict[str, Any], state: DistributedState) -> None:
                 if max_tokens is not None:
                     metrics["token_progress"] = min(1.0, tokens_seen / int(max_tokens))
                 append_metrics(metrics_path, metrics)
+                progress_pct = 100.0 * min(1.0, step / max(1, total_steps))
                 LOGGER.info(
-                    "step=%s loss=%.4f lr=%.6e tokens=%s grad_norm=%.4f tok/s=%.1f",
+                    "step=%s/%s progress=%.2f%% loss=%.4f lr=%.6e tokens=%s "
+                    "grad_norm=%.4f tok/s=%.1f",
                     step,
+                    total_steps,
+                    progress_pct,
                     train_loss,
                     lr,
                     tokens_seen,

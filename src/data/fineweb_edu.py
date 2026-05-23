@@ -101,6 +101,17 @@ def write_training_corpus(
             handle.write("\n")
             samples_written += 1
             bytes_written += len(stripped.encode("utf-8")) + 1
+
+            if samples_written == 1 or samples_written % chunk_samples == 0:
+                LOGGER.info(
+                    "Tokenizer corpus progress: samples_seen=%s samples_written=%s/%s "
+                    "chunks=%s bytes=%s",
+                    samples_seen,
+                    samples_written,
+                    max_samples,
+                    len(files),
+                    bytes_written,
+                )
     finally:
         if handle is not None:
             handle.close()
