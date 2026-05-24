@@ -39,6 +39,20 @@ def _required(mapping: dict[str, Any], path: str, label: str | None = None) -> A
     return current
 
 
+def _required_any(mapping: dict[str, Any], paths: tuple[str, ...], label: str) -> Any:
+    for path in paths:
+        current: Any = mapping
+        found = True
+        for part in path.split("."):
+            if not isinstance(current, dict) or part not in current:
+                found = False
+                break
+            current = current[part]
+        if found and current is not None and current != "":
+            return current
+    raise ConfigError(f"Missing required config value: {label}")
+
+
 def _require_mapping(
     mapping: dict[str, Any],
     path: str,
@@ -60,6 +74,17 @@ def _require_positive_int(
     value = _required(mapping, path, display_path)
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ConfigError(f"Config value must be a positive integer: {display_path}")
+    return value
+
+
+def _require_positive_int_any(
+    mapping: dict[str, Any],
+    paths: tuple[str, ...],
+    label: str,
+) -> int:
+    value = _required_any(mapping, paths, label)
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ConfigError(f"Config value must be a positive integer: {label}")
     return value
 
 
@@ -94,6 +119,13 @@ def _require_bool(mapping: dict[str, Any], path: str, label: str | None = None) 
     value = _required(mapping, path, display_path)
     if not isinstance(value, bool):
         raise ConfigError(f"Config value must be a boolean: {display_path}")
+    return value
+
+
+def _require_bool_any(mapping: dict[str, Any], paths: tuple[str, ...], label: str) -> bool:
+    value = _required_any(mapping, paths, label)
+    if not isinstance(value, bool):
+        raise ConfigError(f"Config value must be a boolean: {label}")
     return value
 
 
@@ -169,7 +201,7 @@ def validate_run_config(config: dict[str, Any]) -> None:
     expected_model_values = {
         "architecture": "decoder_only_transformer",
         "positional_encoding": "rope",
-        "attention": "mqa",
+        "attention": "gqa",
         "activation": "swiglu",
         "normalization": "rmsnorm",
     }
@@ -178,14 +210,26 @@ def validate_run_config(config: dict[str, Any]) -> None:
         if value != expected:
             raise ConfigError(f"model.{key} must be '{expected}'")
 
-    _require_bool(model, "use_flash_attention", "model.use_flash_attention")
+    _require_bool_any(
+        model,
+        ("flash_attention", "use_flash_attention"),
+        "model.flash_attention",
+    )
     _require_bool(model, "flash_attention_fallback", "model.flash_attention_fallback")
     _require_positive_int(model, "vocab_size", "model.vocab_size")
     _require_positive_int(model, "max_seq_len", "model.max_seq_len")
     _require_positive_int(model, "n_layers", "model.n_layers")
     d_model = _require_positive_int(model, "d_model", "model.d_model")
-    n_heads = _require_positive_int(model, "n_heads", "model.n_heads")
-    num_kv_heads = _require_positive_int(model, "num_kv_heads", "model.num_kv_heads")
+    n_heads = _require_positive_int_any(
+        model,
+        ("num_attention_heads", "n_heads"),
+        "model.num_attention_heads",
+    )
+    num_kv_heads = _require_positive_int_any(
+        model,
+        ("num_key_value_heads", "num_kv_heads", "n_kv_heads"),
+        "model.num_key_value_heads",
+    )
     _require_positive_number(model, "ffn_multiplier", "model.ffn_multiplier")
     _require_positive_int(model, "multiple_of", "model.multiple_of")
     _require_positive_number(model, "norm_eps", "model.norm_eps")
@@ -193,9 +237,18 @@ def validate_run_config(config: dict[str, Any]) -> None:
     _required(model, "dropout", "model.dropout")
     _require_bool(model, "tie_embeddings", "model.tie_embeddings")
     if d_model % n_heads != 0:
-        raise ConfigError("model.d_model must be divisible by model.n_heads")
+        raise ConfigError("model.d_model must be divisible by model.num_attention_heads")
     if n_heads % num_kv_heads != 0:
-        raise ConfigError("model.n_heads must be divisible by model.num_kv_heads")
+        raise ConfigError(
+            "model.num_attention_heads must be divisible by model.num_key_value_heads"
+        )
+    if _required_any(model, ("flash_attention", "use_flash_attention"), "model.flash_attention"):
+        head_dim = d_model // n_heads
+        if head_dim % 8 != 0:
+            raise ConfigError(
+                "model.d_model / model.num_attention_heads must be divisible by 8 "
+                "when model.flash_attention=true"
+            )
 
     training = _section(config, "training")
     distributed = _require_mapping(

@@ -19,5 +19,7 @@ torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/t
 - `latest.pt` and `final.pt` are maintained, with periodic `step_*.pt` checkpoints rotated by `keep_last_n`.
 - Resume is controlled by `training.checkpointing.resume_from`.
 - Metrics are appended to `outputs/llm_200m_fineweb_edu/logs/metrics.jsonl`.
+- Training run metadata is written to `outputs/llm_200m_fineweb_edu/logs/training_metadata.json`.
+- At startup, training logs the selected attention optimization backend, including whether Flash SDPA is available for the configured GQA shape.
 
-Metrics include training loss, validation loss, perplexity, learning rate, tokens seen, gradient norm, throughput, and token progress when the values are available.
+Metrics include training loss, training perplexity, validation loss, validation perplexity, learning rate, tokens seen, gradient norm, throughput, step time, token progress, epoch-equivalent progress, and CUDA memory usage when the values are available.

@@ -41,7 +41,7 @@ Explain:
 
 - Decoder-only Transformer architecture
 - RoPE
-- MQA
+- GQA
 - Flash Attention
 - SwiGLU
 - RMSNorm

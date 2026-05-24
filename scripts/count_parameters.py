@@ -53,10 +53,11 @@ def main() -> None:
     print("Architecture: decoder-only Transformer")
     print(
         "Dimensions: "
+        f"attention={model_config.attention}, "
         f"layers={model_config.n_layers}, "
         f"d_model={model_config.d_model}, "
-        f"heads={model_config.n_heads}, "
-        f"kv_heads={model_config.n_kv_heads}, "
+        f"num_attention_heads={model_config.n_heads}, "
+        f"num_key_value_heads={model_config.n_kv_heads}, "
         f"head_dim={model_config.head_dim}, "
         f"ffn_dim={model_config.ffn_dim}, "
         f"max_seq_len={model_config.context_length}"

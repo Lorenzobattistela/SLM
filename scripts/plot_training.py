@@ -2,6 +2,7 @@ from __future__ import annotations
 # ruff: noqa: E402
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -22,6 +23,15 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Optional metrics JSONL path. Defaults to <project.output_dir>/logs/metrics.jsonl.",
+    )
+    parser.add_argument(
+        "--metadata",
+        type=str,
+        default=None,
+        help=(
+            "Optional training metadata JSON path. Defaults to "
+            "<project.output_dir>/logs/training_metadata.json when present."
+        ),
     )
     return parser.parse_args()
 
@@ -46,6 +56,24 @@ def main() -> None:
 
     output_dir = resolve_project_path(plots_cfg["output_dir"])
     plot_names = plots_cfg.get("generate")
+    metadata_path = (
+        resolve_project_path(args.metadata)
+        if args.metadata
+        else resolve_project_path(config["project"]["output_dir"])
+        / "logs"
+        / "training_metadata.json"
+    )
+    if metadata_path.exists():
+        with metadata_path.open("r", encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        logging.info(
+            "Loaded training metadata: parameters=%s attention=%s backend=%s",
+            metadata.get("parameters", "unknown"),
+            metadata.get("model", {}).get("attention", "unknown"),
+            metadata.get("attention_optimization", {}).get("backend", "unknown"),
+        )
+    else:
+        logging.info("Training metadata file not found, plotting metrics only: %s", metadata_path)
 
     metrics = load_jsonl_metrics(metrics_path)
     results = generate_training_plots(metrics, output_dir, plot_names=plot_names)

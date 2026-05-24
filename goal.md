@@ -13,7 +13,7 @@ The final project must support:
 2. Pretraining on **FineWeb-Edu**
 3. A decoder-only Transformer architecture with:
    - RoPE positional encoding
-   - Multi-Query Attention, also called MQA
+   - Grouped-Query Attention, also called GQA
    - Flash Attention
    - SwiGLU feed-forward layers
    - RMSNorm
@@ -86,7 +86,7 @@ Required architecture:
 
 ```text
 Positional Encoder: RoPE
-Attention mechanism: MQA with Flash Attention
+Attention mechanism: GQA with Flash Attention
 FFN activation: SwiGLU
 Normalization: RMSNorm
 Training optimizer: AdamW
@@ -103,10 +103,10 @@ The model should include:
 - RMSNorm before FFN
 - Causal self-attention
 - RoPE applied to query and key tensors
-- Multi-Query Attention:
+- Grouped-Query Attention:
   - Multiple query heads
   - Shared or reduced key/value heads
-  - Configurable `num_kv_heads`
+  - Configurable `num_key_value_heads`
 - Flash Attention when available
 - Safe attention fallback if Flash Attention is unavailable
 - SwiGLU MLP block
@@ -139,8 +139,8 @@ model:
   acceptable_max_parameters: 205000000
 
   positional_encoding: "rope"
-  attention: "mqa"
-  use_flash_attention: true
+  attention: "gqa"
+  flash_attention: true
   flash_attention_fallback: true
 
   activation: "swiglu"
@@ -150,8 +150,8 @@ model:
   max_seq_len: 2048
   n_layers: 12
   d_model: 768
-  n_heads: 12
-  num_kv_heads: 1
+  num_attention_heads: 16
+  num_key_value_heads: 4
   ffn_multiplier: 4
   multiple_of: 256
   norm_eps: 1.0e-5
@@ -244,8 +244,8 @@ model:
   acceptable_max_parameters: 205000000
 
   positional_encoding: "rope"
-  attention: "mqa"
-  use_flash_attention: true
+  attention: "gqa"
+  flash_attention: true
   flash_attention_fallback: true
 
   activation: "swiglu"
@@ -255,8 +255,8 @@ model:
   max_seq_len: 2048
   n_layers: 12
   d_model: 768
-  n_heads: 12
-  num_kv_heads: 1
+  num_attention_heads: 16
+  num_key_value_heads: 4
   ffn_multiplier: 4
   multiple_of: 256
   norm_eps: 1.0e-5
@@ -447,7 +447,7 @@ python scripts/evaluate.py --run-config configs/train_200m_fineweb_edu.yml
 The task is complete only when:
 
 - A YAML config exists for the 200M FineWeb-Edu run
-- The model architecture implements RoPE, MQA, Flash Attention, SwiGLU, and RMSNorm
+- The model architecture implements RoPE, GQA, Flash Attention, SwiGLU, and RMSNorm
 - AdamW is configured through YAML
 - LR warmup and cosine decay are configured through YAML
 - SuperBPE tokenizer support exists

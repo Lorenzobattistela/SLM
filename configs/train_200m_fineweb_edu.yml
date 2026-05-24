@@ -47,13 +47,13 @@ tokenizer:
 
 model:
   architecture: "decoder_only_transformer"
-  target_parameters: 199416000
+  target_parameters: 200000000
   acceptable_min_parameters: 195000000
   acceptable_max_parameters: 205000000
 
   positional_encoding: "rope"
-  attention: "mqa"
-  use_flash_attention: true
+  attention: "gqa"
+  flash_attention: true
   flash_attention_fallback: true
 
   activation: "swiglu"
@@ -61,12 +61,12 @@ model:
 
   vocab_size: 50000
   max_seq_len: 2048
-  n_layers: 14
-  d_model: 960
-  n_heads: 15
-  num_kv_heads: 1
-  ffn_multiplier: 3
-  multiple_of: 256
+  n_layers: 12
+  d_model: 1024
+  num_attention_heads: 16
+  num_key_value_heads: 4
+  ffn_multiplier: 3.125
+  multiple_of: 64
   norm_eps: 1.0e-5
   rope_theta: 10000.0
   dropout: 0.0
@@ -82,7 +82,7 @@ training:
   precision: "bf16"
   compile_model: false
 
-  micro_batch_size: 8
+  micro_batch_size: 4
   gradient_accumulation_steps: 16
   max_steps: null
   max_tokens: 4000000000
@@ -132,6 +132,15 @@ plots:
     - "train_loss"
     - "validation_loss"
     - "perplexity"
+    - "train_perplexity"
     - "learning_rate"
     - "tokens_seen"
     - "gradient_norm"
+    - "tokens_per_second"
+    - "samples_per_second"
+    - "step_time_seconds"
+    - "token_progress"
+    - "epoch_equivalent"
+    - "gpu_memory_allocated"
+    - "gpu_memory_reserved"
+    - "gpu_memory_max_allocated"

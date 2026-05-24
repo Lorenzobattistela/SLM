@@ -163,17 +163,17 @@ Model settings live in the `model` section and define the SLM architecture.
 | `model.acceptable_min_parameters` | Lower bound accepted by the parameter-count check. |
 | `model.acceptable_max_parameters` | Upper bound accepted by the parameter-count check. |
 | `model.positional_encoding` | Must be `rope`. |
-| `model.attention` | Must be `mqa` for multi-query attention. |
-| `model.use_flash_attention` | Enables Flash Attention when the installed PyTorch/backend supports it. |
-| `model.flash_attention_fallback` | Allows fallback attention when Flash Attention is unavailable. |
+| `model.attention` | Must be `gqa` for grouped-query attention. |
+| `model.flash_attention` | Requests PyTorch SDPA Flash Attention for the configured CUDA attention shape. |
+| `model.flash_attention_fallback` | Allows fallback to another SDPA path or manual attention when Flash SDPA is unavailable. |
 | `model.activation` | Must be `swiglu`. |
 | `model.normalization` | Must be `rmsnorm`. |
 | `model.vocab_size` | Model vocabulary size. Keep aligned with `tokenizer.vocab_size`. |
 | `model.max_seq_len` | Context length/block size used for training batches. |
 | `model.n_layers` | Number of Transformer blocks. |
-| `model.d_model` | Hidden width. Must be divisible by `model.n_heads`. |
-| `model.n_heads` | Number of query attention heads. |
-| `model.num_kv_heads` | Number of key/value heads. `model.n_heads` must be divisible by this value. |
+| `model.d_model` | Hidden width. Must be divisible by `model.num_attention_heads`. |
+| `model.num_attention_heads` | Number of query attention heads. |
+| `model.num_key_value_heads` | Number of key/value heads. `model.num_attention_heads` must be divisible by this value. |
 | `model.ffn_multiplier` | Multiplier used to derive the feed-forward hidden size from `d_model`. |
 | `model.multiple_of` | Rounds the derived feed-forward hidden size up to this multiple. |
 | `model.norm_eps` | RMSNorm epsilon. |
@@ -253,12 +253,18 @@ Related runtime settings are configured outside the `training` section.
 | `plots.enabled` | Records whether plot generation is part of the run. |
 | `plots.output_dir` | Directory for generated plot images. |
 | `plots.keep_existing_plots` | Records whether existing plot files should be preserved by plotting workflows. |
-| `plots.generate` | Plot names to generate, such as train loss, validation loss, perplexity, learning rate, tokens seen, and gradient norm. |
+| `plots.generate` | Plot names to generate, such as train loss, validation loss, perplexity, learning rate, tokens seen, gradient norm, throughput, step time, token progress, epoch-equivalent progress, and GPU memory. |
 
 Metrics are appended to:
 
 ```text
 outputs/llm_200m_fineweb_edu/logs/metrics.jsonl
+```
+
+Training metadata for post-run reporting is written to:
+
+```text
+outputs/llm_200m_fineweb_edu/logs/training_metadata.json
 ```
 
 Plots are written to:

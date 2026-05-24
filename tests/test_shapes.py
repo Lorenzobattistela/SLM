@@ -16,6 +16,7 @@ def test_transformer_forward_shapes() -> None:
         n_heads=4,
         n_kv_heads=2,
         ffn_dim=192,
+        attention="gqa",
     )
     model = TransformerLM(config)
     inputs = torch.randint(0, config.vocab_size, (2, config.context_length))
@@ -31,17 +32,18 @@ def test_model_config_reads_task_yaml_shape() -> None:
             "architecture": "decoder_only_transformer",
             "vocab_size": 128,
             "max_seq_len": 16,
+            "attention": "gqa",
             "n_layers": 2,
             "d_model": 64,
-            "n_heads": 4,
-            "num_kv_heads": 1,
+            "num_attention_heads": 4,
+            "num_key_value_heads": 1,
             "ffn_multiplier": 4,
             "multiple_of": 64,
             "norm_eps": 1.0e-5,
             "rope_theta": 10000.0,
             "dropout": 0.0,
             "tie_embeddings": True,
-            "use_flash_attention": False,
+            "flash_attention": False,
             "flash_attention_fallback": True,
         }
     )

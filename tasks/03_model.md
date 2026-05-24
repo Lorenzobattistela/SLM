@@ -19,7 +19,7 @@ Implement a decoder-only Transformer language model with:
 
 ```text
 RoPE positional encoding
-MQA attention
+GQA attention
 Flash Attention support
 SwiGLU feed-forward network
 RMSNorm
@@ -63,8 +63,8 @@ model:
   max_seq_len: 2048
   n_layers: 12
   d_model: 768
-  n_heads: 12
-  num_kv_heads: 1
+  num_attention_heads: 16
+  num_key_value_heads: 4
   ffn_multiplier: 4
   multiple_of: 256
   norm_eps: 1.0e-5
@@ -102,17 +102,17 @@ Requirements:
 
 ---
 
-## Multi-Query Attention
+## Grouped-Query Attention
 
-Implement MQA.
+Implement GQA.
 
 Requirements:
 
-- `n_heads` controls query heads
-- `num_kv_heads` controls key/value heads
-- If `num_kv_heads == 1`, this is pure MQA
+- `num_attention_heads` controls query heads
+- `num_key_value_heads` controls key/value heads
+- If `num_key_value_heads == 1`, all query groups share a single key/value group
 - Support repeating/broadcasting KV heads to match query heads
-- Validate that `n_heads % num_kv_heads == 0`
+- Validate that `num_attention_heads % num_key_value_heads == 0`
 
 ---
 
@@ -127,7 +127,7 @@ Acceptable implementations:
 
 Requirements:
 
-- Prefer Flash Attention path when config says `use_flash_attention: true`
+- Prefer Flash Attention path when config says `flash_attention: true`
 - Provide a safe fallback if unavailable and config allows fallback
 - Log which attention path is being used
 - Do not fail silently
@@ -251,7 +251,7 @@ It must instantiate the model without running training.
 This task is complete when:
 
 - The model implements RoPE
-- The model implements MQA
+- The model implements GQA
 - The model supports Flash Attention or a safe fallback
 - The model implements SwiGLU
 - The model implements RMSNorm

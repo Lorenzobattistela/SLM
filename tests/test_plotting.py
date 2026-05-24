@@ -13,13 +13,18 @@ def test_generate_training_plots_skips_missing_optional_metric(tmp_path: Path) -
             "step": 1,
             "tokens_seen": 128,
             "train_loss": 4.2,
+            "train_perplexity": 66.7,
             "learning_rate": 1.0e-4,
+            "tokens_per_second": 1000.0,
+            "step_time_seconds": 0.25,
+            "token_progress_percent": 50.0,
+            "epoch_equivalent": 0.5,
         },
         {
             "step": 2,
             "tokens_seen": 256,
             "validation_loss": 4.0,
-            "perplexity": 54.6,
+            "validation_perplexity": 54.6,
             "learning_rate": 9.0e-5,
         },
     ]
@@ -36,9 +41,14 @@ def test_generate_training_plots_skips_missing_optional_metric(tmp_path: Path) -
             "train_loss",
             "validation_loss",
             "perplexity",
+            "train_perplexity",
             "learning_rate",
             "tokens_seen",
             "gradient_norm",
+            "tokens_per_second",
+            "step_time_seconds",
+            "token_progress",
+            "epoch_equivalent",
         ],
     )
 
@@ -48,7 +58,12 @@ def test_generate_training_plots_skips_missing_optional_metric(tmp_path: Path) -
     assert (tmp_path / "plots" / "train_loss.png").exists()
     assert (tmp_path / "plots" / "validation_loss.png").exists()
     assert (tmp_path / "plots" / "perplexity.png").exists()
+    assert (tmp_path / "plots" / "train_perplexity.png").exists()
     assert (tmp_path / "plots" / "learning_rate.png").exists()
     assert (tmp_path / "plots" / "tokens_seen.png").exists()
+    assert (tmp_path / "plots" / "tokens_per_second.png").exists()
+    assert (tmp_path / "plots" / "step_time_seconds.png").exists()
+    assert (tmp_path / "plots" / "token_progress.png").exists()
+    assert (tmp_path / "plots" / "epoch_equivalent.png").exists()
     assert written["train_loss"].points == 1
     assert skipped["gradient_norm"].reason == "metric unavailable"

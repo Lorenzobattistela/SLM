@@ -3,8 +3,10 @@ vocab_size: 50257
 context_length: 1024
 d_model: 512
 n_layers: 14
-n_heads: 8
-n_kv_heads: 4
+attention: gqa
+flash_attention: true
+num_attention_heads: 8
+num_key_value_heads: 4
 ffn_dim: 1536
 dropout: 0.0
 rope_base: 10000.0

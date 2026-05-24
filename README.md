@@ -15,7 +15,7 @@ for a Linux machine with 2 NVIDIA GPUs.
 
 ## Architecture
 
-The model uses RoPE positional encoding, Multi-Query Attention, Flash Attention when available with a safe fallback, SwiGLU feed-forward layers, RMSNorm, and a tied language-modeling head when enabled. With the local 50K tokenizer, the configured parameter count is 199,416,000.
+The model uses RoPE positional encoding, Grouped-Query Attention, Flash Attention when available with a safe fallback, SwiGLU feed-forward layers, RMSNorm, and a tied language-modeling head when enabled. With the local 50K tokenizer, the configured parameter count is 195,929,088.
 
 Check the parameter count with:
 
@@ -92,6 +92,12 @@ Training metrics are written to:
 
 ```text
 outputs/llm_200m_fineweb_edu/logs/metrics.jsonl
+```
+
+Training run metadata is written to:
+
+```text
+outputs/llm_200m_fineweb_edu/logs/training_metadata.json
 ```
 
 Plots are written to:

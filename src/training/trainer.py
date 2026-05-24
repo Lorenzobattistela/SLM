@@ -5,6 +5,7 @@ import logging
 import math
 import time
 from contextlib import nullcontext
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from src.config import resolve_project_path
 from src.data.token_dataset import TokenBinDataset, token_dtype_for_vocab
 from src.evaluation.evaluator import evaluate_model
 from src.model import ModelConfig, TransformerLM
+from src.model.attention import configure_attention_optimization
 from src.training.checkpointing import (
     find_checkpoint,
     load_checkpoint,
@@ -30,7 +32,7 @@ from src.training.ddp import (
     init_distributed,
     select_training_device,
 )
-from src.training.metrics import append_metrics
+from src.training.metrics import append_metrics, perplexity_from_loss
 from src.training.optimizer import build_optimizer
 from src.training.precision import autocast_for_precision, resolve_precision
 from src.training.scheduler import build_scheduler
@@ -105,6 +107,13 @@ def _log_main(state: DistributedState, message: str, *args: Any) -> None:
         LOGGER.info(message, *args)
 
 
+def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=True)
+
+
 def _save_training_checkpoint(
     *,
     config: dict[str, Any],
@@ -170,6 +179,7 @@ def _run_validation(
                 "validation_loss": eval_stats.loss,
                 "val_loss": eval_stats.loss,
                 "perplexity": eval_stats.perplexity,
+                "validation_perplexity": eval_stats.perplexity,
             },
         )
         LOGGER.info(
@@ -192,8 +202,18 @@ def _run_training(config: dict[str, Any], state: DistributedState) -> None:
         torch.backends.cudnn.allow_tf32 = True
 
     model_cfg = ModelConfig.from_dict(config["model"])
+    micro_batch_size = int(training_cfg["micro_batch_size"])
+    grad_accum_steps = int(training_cfg["gradient_accumulation_steps"])
     train_dataset, val_dataset = _build_datasets(config, model_cfg)
     model = TransformerLM(model_cfg).to(device)
+    attention_info = configure_attention_optimization(
+        model,
+        config=model_cfg,
+        device=device,
+        precision=precision,
+        batch_size=micro_batch_size,
+        seq_len=model_cfg.context_length,
+    )
 
     if bool(training_cfg.get("compile_model", False)) and hasattr(torch, "compile"):
         model = torch.compile(model)
@@ -230,10 +250,9 @@ def _run_training(config: dict[str, Any], state: DistributedState) -> None:
     if resume_data_rng_state is not None:
         rng.bit_generator.state = resume_data_rng_state
 
-    micro_batch_size = int(training_cfg["micro_batch_size"])
-    grad_accum_steps = int(training_cfg["gradient_accumulation_steps"])
     tokens_per_step = micro_batch_size * grad_accum_steps * model_cfg.context_length * state.world_size
     effective_batch = micro_batch_size * grad_accum_steps * state.world_size
+    max_tokens = training_cfg.get("max_tokens")
 
     _log_main(
         state,
@@ -249,6 +268,69 @@ def _run_training(config: dict[str, Any], state: DistributedState) -> None:
         tokens_per_step,
         total_steps,
     )
+    _log_main(
+        state,
+        "Attention optimization backend=%s flash_requested=%s flash_available=%s "
+        "enable_gqa=%s detail=%s",
+        attention_info.backend,
+        attention_info.flash_requested,
+        attention_info.flash_available,
+        attention_info.enable_gqa,
+        attention_info.detail,
+    )
+
+    if state.is_main_process:
+        training_metadata = {
+            "event": "training_start",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "project": config["project"]["name"],
+            "precision": precision,
+            "device": str(device),
+            "ddp": state.enabled,
+            "world_size": state.world_size,
+            "parameters": unwrap_model(model).num_parameters(),
+            "model": {
+                "architecture": model_cfg.name,
+                "attention": model_cfg.attention,
+                "flash_attention": model_cfg.flash_attention,
+                "num_attention_heads": model_cfg.n_heads,
+                "num_key_value_heads": model_cfg.n_kv_heads,
+                "head_dim": model_cfg.head_dim,
+                "layers": model_cfg.n_layers,
+                "d_model": model_cfg.d_model,
+                "context_length": model_cfg.context_length,
+            },
+            "attention_optimization": attention_info.to_dict(),
+            "training": {
+                "micro_batch_size": micro_batch_size,
+                "gradient_accumulation_steps": grad_accum_steps,
+                "effective_batch_size": effective_batch,
+                "tokens_per_step": tokens_per_step,
+                "total_steps": total_steps,
+                "max_tokens": max_tokens,
+            },
+            "dataset": {
+                "train_tokens": train_dataset.num_tokens,
+                "validation_tokens": val_dataset.num_tokens,
+            },
+        }
+        _write_json(output_dir / "logs" / "training_metadata.json", training_metadata)
+        append_metrics(
+            metrics_path,
+            {
+                "event": "training_start",
+                "step": step,
+                "tokens_seen": tokens_seen,
+                "total_steps": total_steps,
+                "train_dataset_tokens": train_dataset.num_tokens,
+                "validation_dataset_tokens": val_dataset.num_tokens,
+                "effective_batch_size": effective_batch,
+                "tokens_per_step": tokens_per_step,
+                "attention_backend": attention_info.backend,
+                "attention_flash_available": attention_info.flash_available,
+                "attention_enable_gqa": attention_info.enable_gqa,
+            },
+        )
 
     last_log_time = time.perf_counter()
     last_eval_step: int | None = None
@@ -300,35 +382,54 @@ def _run_training(config: dict[str, Any], state: DistributedState) -> None:
                 step_elapsed = max(1.0e-9, time.perf_counter() - step_started)
                 last_log_time = time.perf_counter()
                 train_loss = accumulated_loss / grad_accum_steps
+                train_perplexity = perplexity_from_loss(train_loss)
                 lr = float(scheduler.get_last_lr()[0])
-                max_tokens = training_cfg.get("max_tokens")
+                token_progress = (
+                    min(1.0, tokens_seen / int(max_tokens)) if max_tokens is not None else None
+                )
                 metrics = {
                     "step": step,
                     "tokens_seen": tokens_seen,
                     "train_loss": train_loss,
+                    "train_perplexity": train_perplexity,
                     "learning_rate": lr,
                     "gradient_norm": grad_norm,
                     "effective_batch_size": effective_batch,
                     "tokens_per_step": tokens_per_step,
+                    "step_time_seconds": step_elapsed,
                     "tokens_per_second": tokens_per_step / step_elapsed,
                     "samples_per_second": effective_batch / step_elapsed,
+                    "epoch_equivalent": tokens_seen / max(1, train_dataset.num_tokens),
                     "log_window_tokens_per_second": (
                         tokens_per_step * int(config["logging"]["log_every_steps"]) / elapsed
                     ),
                 }
-                if max_tokens is not None:
-                    metrics["token_progress"] = min(1.0, tokens_seen / int(max_tokens))
+                if token_progress is not None:
+                    metrics["token_progress"] = token_progress
+                    metrics["token_progress_percent"] = 100.0 * token_progress
+                if device.type == "cuda":
+                    metrics["gpu_memory_allocated_gb"] = (
+                        torch.cuda.memory_allocated(device) / 1024**3
+                    )
+                    metrics["gpu_memory_reserved_gb"] = (
+                        torch.cuda.memory_reserved(device) / 1024**3
+                    )
+                    metrics["gpu_memory_max_allocated_gb"] = (
+                        torch.cuda.max_memory_allocated(device) / 1024**3
+                    )
                 append_metrics(metrics_path, metrics)
                 progress_pct = 100.0 * min(1.0, step / max(1, total_steps))
                 LOGGER.info(
-                    "step=%s/%s progress=%.2f%% loss=%.4f lr=%.6e tokens=%s "
-                    "grad_norm=%.4f tok/s=%.1f",
+                    "step=%s/%s progress=%.2f%% loss=%.4f train_ppl=%.2f lr=%.6e "
+                    "tokens=%s epoch_equiv=%.4f grad_norm=%.4f tok/s=%.1f",
                     step,
                     total_steps,
                     progress_pct,
                     train_loss,
+                    train_perplexity,
                     lr,
                     tokens_seen,
+                    metrics["epoch_equivalent"],
                     grad_norm,
                     metrics["tokens_per_second"],
                 )
