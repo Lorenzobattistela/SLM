@@ -4,22 +4,24 @@ The required tokenizer type is SuperBPE. The config enforces
 `tokenizer.type: "superbpe"` and
 `do_not_fallback_to_standard_bpe_silently: true`.
 
-The pipeline uses the upstream pretrained SuperBPE 200K tokenizer with
-transition point `t=180K`:
+The pipeline uses the locally trained SuperBPE 50K tokenizer created by the
+scripts in `tokenizer/`:
 
 ```text
-tokenizer_json/olmo2_p99_truncate_10G_180K_extend_200K_mw4_colon/
+artifacts/tokenizer_superbpe_50k_olmo_p99/
 ```
 
-The tokenizer artifacts are downloaded on first use into:
+Train or refresh those artifacts with:
 
-```text
-artifacts/tokenizer_superbpe_200k_t180k/
+```bash
+bash tokenizer/run_tokenizer.sh
 ```
 
 Expected artifacts include `tokenizer.json`, `vocab.json`, `merges.txt`,
-`meta.json`, and `tokenizer_metadata.json`. The project no longer trains a
-SuperBPE tokenizer on the local FineWeb-Edu corpus.
+and `tokenizer_metadata.json`. The main run config sets
+`tokenizer.train_if_missing: false`, so it fails clearly if this local tokenizer
+has not been trained instead of downloading the upstream 200K tokenizer or
+training a different tokenizer on FineWeb-Edu.
 
 Install the SuperBPE backend before tokenization commands:
 

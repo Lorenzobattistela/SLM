@@ -124,10 +124,10 @@ FineWeb-Edu data is configured in the `dataset` section.
 | `dataset.tokenize_num_workers` | Number of parallel processes used to tokenize dataset shards. Can be overridden with `TOKENIZE_DATASET_WORKERS`. |
 | `dataset.config_name` | Optional Hugging Face dataset configuration name, if a dataset variant needs one. |
 
-`scripts/tokenize_dataset.py` streams FineWeb-Edu, downloads/loads the
-configured pretrained SuperBPE artifacts if needed, assigns documents to
-validation with a deterministic hash split, then writes training and validation
-tokens until the configured targets are reached.
+`scripts/tokenize_dataset.py` streams FineWeb-Edu, loads the configured local
+SuperBPE artifacts, assigns documents to validation with a deterministic hash
+split, then writes training and validation tokens until the configured targets
+are reached.
 
 ## Tokenizer Hyperparameters
 
@@ -137,14 +137,14 @@ Tokenizer settings live in the `tokenizer` section.
 | --- | --- |
 | `tokenizer.type` | Must be `superbpe`; the config validator rejects other values. |
 | `tokenizer.vocab_size` | Final tokenizer vocabulary size. This should match `model.vocab_size`. |
-| `tokenizer.pretrained.name` | Human-readable pretrained tokenizer name. |
-| `tokenizer.pretrained.base_url` | Base URL used to download pretrained tokenizer artifacts. |
-| `tokenizer.pretrained.files` | Artifact file list downloaded into `tokenizer.save_dir`. |
+| `tokenizer.train_if_missing` | When `false`, fail if `tokenizer.save_dir` does not already contain the local tokenizer artifacts. |
+| `tokenizer.train_samples` | Sample count used only if tokenizer training is explicitly allowed. |
+| `tokenizer.corpus_num_workers` | Corpus-writing workers used only if tokenizer training is explicitly allowed. |
 | `tokenizer.special_tokens.pad_token` | Padding token string. |
 | `tokenizer.special_tokens.bos_token` | Beginning-of-sequence token string. |
 | `tokenizer.special_tokens.eos_token` | End-of-sequence token string. |
 | `tokenizer.special_tokens.unk_token` | Unknown-token alias used by downstream code. |
-| `tokenizer.save_dir` | Directory for pretrained tokenizer artifacts and metadata. |
+| `tokenizer.save_dir` | Directory for local tokenizer artifacts and metadata. |
 | `tokenizer.append_eos` | Whether dataset tokenization appends the configured EOS token to each sample. |
 | `tokenizer.allow_unverified_superbpe_backend` | Allows an unverified `tokenizers` package only for explicit development experiments. Keep `false` for final runs. |
 | `tokenizer.do_not_fallback_to_standard_bpe_silently` | Documentation/config guard that records the requirement not to replace SuperBPE with standard BPE silently. |
@@ -272,8 +272,8 @@ outputs/llm_200m_fineweb_edu/plots/
 After a complete run, expect these paths:
 
 ```text
-artifacts/tokenizer_superbpe_200k_t180k/tokenizer.json
-artifacts/tokenizer_superbpe_200k_t180k/tokenizer_metadata.json
+artifacts/tokenizer_superbpe_50k_olmo_p99/tokenizer.json
+artifacts/tokenizer_superbpe_50k_olmo_p99/tokenizer_metadata.json
 data/processed/train_tokens.bin
 data/processed/val_tokens.bin
 data/processed/metadata.json

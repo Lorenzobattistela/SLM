@@ -13,8 +13,8 @@ The main model is a decoder-only Transformer for next-token language modeling. I
 - A final RMSNorm feeds the language-modeling head.
 - The LM head can be tied to the token embedding matrix through `model.tie_embeddings`.
 
-The configured target is 343,420,800 parameters after switching to the
-pretrained SuperBPE 200K vocabulary. Validate the current config with:
+The configured target is 199,416,000 parameters with the local SuperBPE 50K
+vocabulary. Validate the current config with:
 
 ```bash
 python scripts/count_parameters.py --run-config configs/train_200m_fineweb_edu.yml

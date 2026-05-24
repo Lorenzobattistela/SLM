@@ -1,0 +1,41 @@
+{
+  "tokenizer_type": "superbpe",
+  "vocab_size": 50000,
+  "configured_vocab_size": 50000,
+  "min_frequency": 2,
+  "stage1_vocab_size": 40000,
+  "num_inherit_merges": 40000,
+  "special_tokens": {
+    "pad_token": "<pad>",
+    "bos_token": "<bos>",
+    "eos_token": "<eos>",
+    "unk_token": "<unk>"
+  },
+  "corpus_files": [
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_000/fineweb_edu_tokenizer_train_worker_000_00000.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_000/fineweb_edu_tokenizer_train_worker_000_00001.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_000/fineweb_edu_tokenizer_train_worker_000_00002.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_001/fineweb_edu_tokenizer_train_worker_001_00000.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_001/fineweb_edu_tokenizer_train_worker_001_00001.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_001/fineweb_edu_tokenizer_train_worker_001_00002.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_002/fineweb_edu_tokenizer_train_worker_002_00000.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_002/fineweb_edu_tokenizer_train_worker_002_00001.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_002/fineweb_edu_tokenizer_train_worker_002_00002.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_003/fineweb_edu_tokenizer_train_worker_003_00000.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_003/fineweb_edu_tokenizer_train_worker_003_00001.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_003/fineweb_edu_tokenizer_train_worker_003_00002.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_004/fineweb_edu_tokenizer_train_worker_004_00000.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_004/fineweb_edu_tokenizer_train_worker_004_00001.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_004/fineweb_edu_tokenizer_train_worker_004_00002.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_005/fineweb_edu_tokenizer_train_worker_005_00000.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_005/fineweb_edu_tokenizer_train_worker_005_00001.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_005/fineweb_edu_tokenizer_train_worker_005_00002.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_006/fineweb_edu_tokenizer_train_worker_006_00000.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_006/fineweb_edu_tokenizer_train_worker_006_00001.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_006/fineweb_edu_tokenizer_train_worker_006_00002.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_007/fineweb_edu_tokenizer_train_worker_007_00000.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_007/fineweb_edu_tokenizer_train_worker_007_00001.txt",
+    "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/training_corpus/worker_007/fineweb_edu_tokenizer_train_worker_007_00002.txt"
+  ],
+  "tokenizer_json": "/home/ap208/SLM-feat-dev/artifacts/tokenizer_superbpe_50k_olmo_p99/tokenizer.json"
+}

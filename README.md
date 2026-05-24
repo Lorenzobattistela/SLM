@@ -7,15 +7,15 @@ for a Linux machine with 2 NVIDIA GPUs.
 ## Objective
 
 - Train a decoder-only Transformer for next-token prediction.
-- Use the pretrained SuperBPE 200K tokenizer with transition point t=180K
-  without silently falling back to standard BPE.
+- Use the locally trained SuperBPE 50K tokenizer from `tokenizer/` without
+  silently falling back to standard BPE.
 - Pretrain on FineWeb-Edu with a 4B token target.
 - Support full-pipeline and independent-step execution.
 - Preserve training plots and write practical project documentation under `docs/`.
 
 ## Architecture
 
-The model uses RoPE positional encoding, Multi-Query Attention, Flash Attention when available with a safe fallback, SwiGLU feed-forward layers, RMSNorm, and a tied language-modeling head when enabled. With the pretrained 200K tokenizer, the configured parameter count is 343,420,800.
+The model uses RoPE positional encoding, Multi-Query Attention, Flash Attention when available with a safe fallback, SwiGLU feed-forward layers, RMSNorm, and a tied language-modeling head when enabled. With the local 50K tokenizer, the configured parameter count is 199,416,000.
 
 Check the parameter count with:
 
@@ -67,7 +67,7 @@ It contains `project`, `dataset`, `tokenizer`, `model`, `training`, `evaluation`
 python scripts/run_all.py --run-config configs/train_200m_fineweb_edu.yml
 ```
 
-`run_all.py` tokenizes data with the configured pretrained tokenizer, checks parameters, launches DDP when CUDA/NCCL is available, evaluates, generates plots, and prints a text completion from the latest checkpoint. If DDP cannot be launched safely, it prints the manual command.
+`run_all.py` tokenizes data with the configured local tokenizer, checks parameters, launches DDP when CUDA/NCCL is available, evaluates, generates plots, and prints a text completion from the latest checkpoint. If DDP cannot be launched safely, it prints the manual command.
 
 ## Independent Steps
 

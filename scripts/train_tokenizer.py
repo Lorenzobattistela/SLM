@@ -139,6 +139,13 @@ def main() -> None:
             logger.info("Tokens processed: 0")
             return
 
+        if not bool(tokenizer_cfg.get("train_if_missing", True)):
+            raise SuperBPEError(
+                "Configured tokenizer artifact was not found and tokenizer.train_if_missing=false. "
+                "Run `bash tokenizer/run_tokenizer.sh` first or set tokenizer.save_dir to an "
+                "existing local tokenizer directory."
+            )
+
         if args.force:
             remove_existing_tokenizer(tokenizer_cfg["save_dir"])
 
