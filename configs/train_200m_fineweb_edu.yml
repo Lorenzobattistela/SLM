@@ -12,9 +12,9 @@ dataset:
   target_train_tokens: 4000000000
   validation_tokens: 10000000
   validation_salt: "slm-pretrain-v1"
-  cache_dir: "data/cache"
-  raw_dir: "data/raw"
-  processed_dir: "data/processed"
+  cache_dir: "/home/ap208/slm-utils/data/cache"
+  raw_dir: "/home/ap208/slm-utils/data/raw"
+  processed_dir: "/home/ap208/slm-utils/data/processed"
   tokenize_num_workers: 8
   filters:
     language: "en"

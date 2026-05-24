@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=slm-full-run
 #SBATCH --gres=gpu:2
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=32
 #SBATCH --mem=128gb
-#SBATCH --time=7-00:00:00
+#SBATCH --time=1-00:00:00
 #SBATCH --output=logs/RUN-%j.log
 
 # HOW TO RUN:
@@ -26,7 +26,7 @@ PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
 
 RUN_CONFIG="${RUN_CONFIG:-configs/train_200m_fineweb_edu.yml}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-2}"
-TOKENIZE_DATASET_WORKERS="${TOKENIZE_DATASET_WORKERS:-${SLURM_CPUS_PER_TASK:-8}}"
+TOKENIZE_DATASET_WORKERS="${TOKENIZE_DATASET_WORKERS:-${SLURM_CPUS_PER_TASK:-32}}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 RUN_ID="${SLURM_JOB_ID:-manual-$(date +%Y%m%d-%H%M%S)}"
 FULL_RUN_LOG="${FULL_RUN_LOG:-$PROJECT_DIR/logs/full-run-${RUN_ID}.log}"
@@ -70,7 +70,7 @@ fi
 
 export PYTHONPATH="$PROJECT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
-export OMP_NUM_THREADS="${OMP_NUM_THREADS:-16}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-32}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-true}"
 export TOKENIZE_DATASET_WORKERS
 
