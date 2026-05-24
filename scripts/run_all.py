@@ -59,7 +59,6 @@ def main() -> None:
     run_config = args.run_config
     python = sys.executable
 
-    _run([python, "scripts/train_tokenizer.py", "--run-config", run_config])
     _run([python, "scripts/tokenize_dataset.py", "--run-config", run_config])
     _run([python, "scripts/count_parameters.py", "--run-config", run_config])
 

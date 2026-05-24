@@ -131,12 +131,17 @@ def validate_run_config(config: dict[str, Any]) -> None:
     if tokenizer_type != "superbpe":
         raise ConfigError("tokenizer.type must be 'superbpe'")
     _require_positive_int(tokenizer, "vocab_size", "tokenizer.vocab_size")
-    _require_positive_int(tokenizer, "train_samples", "tokenizer.train_samples")
-    _require_optional_positive_int(
-        tokenizer,
-        "corpus_num_workers",
-        "tokenizer.corpus_num_workers",
-    )
+    pretrained = tokenizer.get("pretrained")
+    if pretrained is not None:
+        pretrained_cfg = _require_mapping(tokenizer, "pretrained", "tokenizer.pretrained")
+        _required(pretrained_cfg, "base_url", "tokenizer.pretrained.base_url")
+    else:
+        _require_positive_int(tokenizer, "train_samples", "tokenizer.train_samples")
+        _require_optional_positive_int(
+            tokenizer,
+            "corpus_num_workers",
+            "tokenizer.corpus_num_workers",
+        )
     special_tokens = _require_mapping(tokenizer, "special_tokens", "tokenizer.special_tokens")
     for token_name in ("pad_token", "bos_token", "eos_token", "unk_token"):
         _required(special_tokens, token_name, f"tokenizer.special_tokens.{token_name}")

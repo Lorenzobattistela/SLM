@@ -32,6 +32,20 @@ def _numpy_dtype(dtype: str) -> np.dtype:
     raise ValueError(f"Unsupported token dtype: {dtype}")
 
 
+def token_file_token_count(path: str | Path, dtype: str) -> int:
+    target = Path(path)
+    if not target.exists():
+        return 0
+    itemsize = _numpy_dtype(dtype).itemsize
+    size_bytes = target.stat().st_size
+    if size_bytes % itemsize != 0:
+        raise ValueError(
+            f"Token file {target} has size {size_bytes} bytes, which is not aligned "
+            f"to dtype {dtype}."
+        )
+    return size_bytes // itemsize
+
+
 @dataclass
 class TokenWriteResult:
     written: int
@@ -39,15 +53,32 @@ class TokenWriteResult:
 
 
 class TokenBinWriter:
-    def __init__(self, path: str | Path, *, vocab_size: int, target_tokens: int) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        vocab_size: int,
+        target_tokens: int,
+        append: bool = False,
+        initial_tokens: int | None = None,
+    ) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.vocab_size = vocab_size
         self.target_tokens = target_tokens
         self.dtype = token_dtype_for_vocab(vocab_size)
         self._typecode = _array_typecode(self.dtype)
-        self.tokens_written = 0
-        self._handle = self.path.open("wb")
+        if append:
+            self.tokens_written = (
+                token_file_token_count(self.path, self.dtype)
+                if initial_tokens is None
+                else int(initial_tokens)
+            )
+            mode = "ab"
+        else:
+            self.tokens_written = 0
+            mode = "wb"
+        self._handle = self.path.open(mode)
 
     @property
     def remaining(self) -> int:

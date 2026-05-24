@@ -2,6 +2,7 @@ from __future__ import annotations
 # ruff: noqa: E402
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -17,7 +18,12 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.config import add_run_config_argument, load_config_from_args, resolve_project_path
 from src.data.fineweb_edu import iter_dataset_texts
 from src.data.split import is_validation_text
-from src.data.token_dataset import TokenBinWriter, token_dtype_for_vocab, write_metadata
+from src.data.token_dataset import (
+    TokenBinWriter,
+    token_dtype_for_vocab,
+    token_file_token_count,
+    write_metadata,
+)
 from src.tokenizer import SuperBPEError, load_superbpe_tokenizer
 
 
@@ -34,7 +40,11 @@ def configure_logging() -> None:
     )
 
 
-def validation_ratio_for_targets(dataset_cfg: dict, train_tokens: int, validation_tokens: int) -> float:
+def validation_ratio_for_targets(
+    dataset_cfg: dict,
+    train_tokens: int,
+    validation_tokens: int,
+) -> float:
     configured_ratio = dataset_cfg.get("validation_ratio")
     if configured_ratio is not None:
         ratio = float(configured_ratio)
@@ -52,7 +62,109 @@ def configured_tokenize_workers(dataset_cfg: dict) -> int:
     return max(1, int(dataset_cfg.get("tokenize_num_workers", 1)))
 
 
-def _tokenize_shard(args: tuple[dict, dict, str, int, int, int, int, float, str]) -> dict:
+def _load_metadata(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _metadata_matches_config(
+    metadata: dict,
+    *,
+    dataset_cfg: dict,
+    tokenizer_cfg: dict,
+    tokenizer_vocab_size: int,
+    storage_dtype: str,
+    target_train_tokens: int,
+    target_validation_tokens: int,
+    validation_ratio: float,
+    validation_salt: str,
+    tokenize_workers: int,
+    append_eos: bool,
+) -> bool:
+    expected = {
+        "dataset_name": dataset_cfg["name"],
+        "split": dataset_cfg.get("split", "train"),
+        "text_column": dataset_cfg["text_column"],
+        "streaming": bool(dataset_cfg.get("streaming", True)),
+        "tokenizer_type": tokenizer_cfg["type"],
+        "tokenizer_dir": str(Path(tokenizer_cfg["save_dir"])),
+        "target_train_tokens": target_train_tokens,
+        "target_validation_tokens": target_validation_tokens,
+        "vocab_size": tokenizer_vocab_size,
+        "storage_dtype": storage_dtype,
+        "append_eos": append_eos,
+        "validation_ratio": validation_ratio,
+        "validation_salt": validation_salt,
+        "tokenize_num_workers": tokenize_workers,
+    }
+    return all(metadata.get(key) == value for key, value in expected.items())
+
+
+def _existing_tokenization_state(
+    *,
+    metadata_path: Path,
+    train_path: Path,
+    val_path: Path,
+    dataset_cfg: dict,
+    tokenizer_cfg: dict,
+    tokenizer_vocab_size: int,
+    target_train_tokens: int,
+    target_validation_tokens: int,
+    validation_ratio: float,
+    validation_salt: str,
+    tokenize_workers: int,
+    append_eos: bool,
+) -> dict:
+    storage_dtype = token_dtype_for_vocab(tokenizer_vocab_size)
+    train_tokens = token_file_token_count(train_path, storage_dtype)
+    validation_tokens = token_file_token_count(val_path, storage_dtype)
+    metadata = _load_metadata(metadata_path)
+    metadata_matches = bool(metadata) and _metadata_matches_config(
+        metadata,
+        dataset_cfg=dataset_cfg,
+        tokenizer_cfg=tokenizer_cfg,
+        tokenizer_vocab_size=tokenizer_vocab_size,
+        storage_dtype=storage_dtype,
+        target_train_tokens=target_train_tokens,
+        target_validation_tokens=target_validation_tokens,
+        validation_ratio=validation_ratio,
+        validation_salt=validation_salt,
+        tokenize_workers=tokenize_workers,
+        append_eos=append_eos,
+    )
+    complete = (
+        metadata_matches
+        and train_tokens >= target_train_tokens
+        and validation_tokens >= target_validation_tokens
+        and int(metadata.get("train_tokens", -1)) >= target_train_tokens
+        and int(metadata.get("validation_tokens", -1)) >= target_validation_tokens
+    )
+    has_resume_state = tokenize_workers <= 1 or len(metadata.get("shards", [])) == tokenize_workers
+    resumable = (
+        metadata_matches
+        and has_resume_state
+        and (train_tokens > 0 or validation_tokens > 0)
+        and (
+            train_tokens < target_train_tokens
+            or validation_tokens < target_validation_tokens
+        )
+    )
+    return {
+        "metadata": metadata,
+        "metadata_matches": metadata_matches,
+        "complete": complete,
+        "resumable": resumable,
+        "train_tokens": train_tokens,
+        "validation_tokens": validation_tokens,
+        "storage_dtype": storage_dtype,
+    }
+
+
+def _tokenize_shard(
+    args: tuple[dict, dict, str, int, int, int, int, float, str, dict | None],
+) -> dict:
     (
         dataset_cfg,
         tokenizer_cfg,
@@ -63,6 +175,7 @@ def _tokenize_shard(args: tuple[dict, dict, str, int, int, int, int, float, str]
         target_validation_tokens,
         validation_ratio,
         validation_salt,
+        resume_stats,
     ) = args
     tokenizer = load_superbpe_tokenizer(tokenizer_cfg)
     append_eos = bool(tokenizer_cfg.get("append_eos", True))
@@ -71,24 +184,45 @@ def _tokenize_shard(args: tuple[dict, dict, str, int, int, int, int, float, str]
     train_path = output_dir / f"train_tokens_worker_{worker_index:03d}.bin"
     val_path = output_dir / f"val_tokens_worker_{worker_index:03d}.bin"
 
-    samples_seen = 0
-    samples_tokenized = 0
-    skipped_empty = 0
+    resume_stats = resume_stats or {}
+    resume_samples_seen = int(resume_stats.get("samples_seen", 0))
+    samples_seen = resume_samples_seen
+    samples_tokenized = int(resume_stats.get("samples_tokenized", 0))
+    skipped_empty = int(resume_stats.get("skipped_empty", 0))
+    if resume_stats:
+        initial_train_tokens = token_file_token_count(
+            train_path,
+            token_dtype_for_vocab(tokenizer.vocab_size),
+        )
+        initial_validation_tokens = token_file_token_count(
+            val_path,
+            token_dtype_for_vocab(tokenizer.vocab_size),
+        )
+    else:
+        initial_train_tokens = 0
+        initial_validation_tokens = 0
 
     with TokenBinWriter(
         val_path,
         vocab_size=tokenizer.vocab_size,
         target_tokens=target_validation_tokens,
+        append=bool(resume_stats),
+        initial_tokens=initial_validation_tokens,
     ) as val_writer, TokenBinWriter(
         train_path,
         vocab_size=tokenizer.vocab_size,
         target_tokens=target_train_tokens,
+        append=bool(resume_stats),
+        initial_tokens=initial_train_tokens,
     ) as train_writer:
-        for text in iter_dataset_texts(
+        shard_texts = iter_dataset_texts(
             dataset_cfg,
             shard_index=worker_index,
             num_shards=num_workers,
-        ):
+        )
+        for shard_sample_index, text in enumerate(shard_texts):
+            if shard_sample_index < resume_samples_seen:
+                continue
             samples_seen += 1
             stripped = text.strip()
             if not stripped:
@@ -121,6 +255,8 @@ def _tokenize_shard(args: tuple[dict, dict, str, int, int, int, int, float, str]
             "validation_path": str(val_path),
             "train_tokens": train_writer.tokens_written,
             "validation_tokens": val_writer.tokens_written,
+            "train_tokens_added": train_writer.tokens_written - initial_train_tokens,
+            "validation_tokens_added": val_writer.tokens_written - initial_validation_tokens,
             "samples_seen": samples_seen,
             "samples_tokenized": samples_tokenized,
             "skipped_empty": skipped_empty,
@@ -132,10 +268,13 @@ def _copy_token_file(
     writer: TokenBinWriter,
     *,
     dtype: str,
+    skip_tokens: int = 0,
     chunk_tokens: int = 1_000_000,
 ) -> None:
     typecode = "H" if dtype == "uint16" else "I"
     with source_path.open("rb") as handle:
+        if skip_tokens > 0:
+            handle.seek(skip_tokens * array(typecode).itemsize)
         while not writer.complete:
             values = array(typecode)
             try:
@@ -161,6 +300,8 @@ def tokenize_dataset_parallel(
     validation_ratio: float,
     validation_salt: str,
     num_workers: int,
+    resume_metadata: dict | None,
+    append: bool,
     logger: logging.Logger,
 ) -> dict:
     tokenizer = load_superbpe_tokenizer(tokenizer_cfg)
@@ -174,6 +315,11 @@ def tokenize_dataset_parallel(
         local_validation_target,
     )
 
+    resume_shards = {
+        int(stats["worker_index"]): stats
+        for stats in (resume_metadata or {}).get("shards", [])
+        if "worker_index" in stats
+    }
     shard_stats: dict[int, dict] = {}
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = {
@@ -189,6 +335,7 @@ def tokenize_dataset_parallel(
                     local_validation_target,
                     validation_ratio,
                     validation_salt,
+                    resume_shards.get(worker_index) if append else None,
                 ),
             ): worker_index
             for worker_index in range(num_workers)
@@ -210,21 +357,26 @@ def tokenize_dataset_parallel(
         val_path,
         vocab_size=tokenizer.vocab_size,
         target_tokens=target_validation_tokens,
+        append=append,
     ) as val_writer, TokenBinWriter(
         train_path,
         vocab_size=tokenizer.vocab_size,
         target_tokens=target_train_tokens,
+        append=append,
     ) as train_writer:
         for worker_index in sorted(shard_stats):
+            previous = resume_shards.get(worker_index, {}) if append else {}
             _copy_token_file(
                 Path(shard_stats[worker_index]["train_path"]),
                 train_writer,
                 dtype=dtype,
+                skip_tokens=int(previous.get("train_tokens", 0)),
             )
             _copy_token_file(
                 Path(shard_stats[worker_index]["validation_path"]),
                 val_writer,
                 dtype=dtype,
+                skip_tokens=int(previous.get("validation_tokens", 0)),
             )
 
         return {
@@ -281,6 +433,45 @@ def main() -> None:
     try:
         tokenizer = load_superbpe_tokenizer(tokenizer_cfg)
         append_eos = bool(tokenizer_cfg.get("append_eos", True))
+        existing_state = _existing_tokenization_state(
+            metadata_path=metadata_path,
+            train_path=train_path,
+            val_path=val_path,
+            dataset_cfg=dataset_cfg,
+            tokenizer_cfg=tokenizer_cfg,
+            tokenizer_vocab_size=tokenizer.vocab_size,
+            target_train_tokens=target_train_tokens,
+            target_validation_tokens=target_validation_tokens,
+            validation_ratio=validation_ratio,
+            validation_salt=validation_salt,
+            tokenize_workers=tokenize_workers,
+            append_eos=append_eos,
+        )
+        if existing_state["complete"]:
+            logger.info(
+                "Existing tokenized dataset is complete; skipping tokenization. "
+                "train_tokens=%s validation_tokens=%s metadata=%s",
+                existing_state["train_tokens"],
+                existing_state["validation_tokens"],
+                metadata_path,
+            )
+            return
+
+        append_existing = bool(existing_state["resumable"])
+        if append_existing:
+            logger.info(
+                "Resuming tokenization by appending to existing token files: "
+                "train_tokens=%s/%s validation_tokens=%s/%s",
+                existing_state["train_tokens"],
+                target_train_tokens,
+                existing_state["validation_tokens"],
+                target_validation_tokens,
+            )
+        elif train_path.exists() or val_path.exists() or metadata_path.exists():
+            logger.warning(
+                "Existing tokenization artifacts are incomplete or incompatible with this "
+                "config; rebuilding tokenized dataset from scratch."
+            )
 
         if tokenize_workers > 1:
             tokenization_stats = tokenize_dataset_parallel(
@@ -294,22 +485,32 @@ def main() -> None:
                 validation_ratio=validation_ratio,
                 validation_salt=validation_salt,
                 num_workers=tokenize_workers,
+                resume_metadata=existing_state["metadata"] if append_existing else None,
+                append=append_existing,
                 logger=logger,
             )
         else:
-            samples_seen = 0
-            samples_tokenized = 0
-            skipped_empty = 0
+            previous_metadata = existing_state["metadata"] if append_existing else {}
+            resume_samples_seen = int(previous_metadata.get("samples_seen", 0))
+            samples_seen = resume_samples_seen
+            samples_tokenized = int(previous_metadata.get("samples_tokenized", 0))
+            skipped_empty = int(previous_metadata.get("skipped_empty", 0))
             with TokenBinWriter(
                 val_path,
                 vocab_size=tokenizer.vocab_size,
                 target_tokens=target_validation_tokens,
+                append=append_existing,
+                initial_tokens=existing_state["validation_tokens"] if append_existing else None,
             ) as val_writer, TokenBinWriter(
                 train_path,
                 vocab_size=tokenizer.vocab_size,
                 target_tokens=target_train_tokens,
+                append=append_existing,
+                initial_tokens=existing_state["train_tokens"] if append_existing else None,
             ) as train_writer:
-                for text in iter_dataset_texts(dataset_cfg):
+                for sample_index, text in enumerate(iter_dataset_texts(dataset_cfg)):
+                    if sample_index < resume_samples_seen:
+                        continue
                     samples_seen += 1
                     stripped = text.strip()
                     if not stripped:
@@ -382,8 +583,8 @@ def main() -> None:
 
         write_metadata(metadata_path, metadata)
 
-        logger.info("Samples processed: %s", samples_seen)
-        logger.info("Samples tokenized: %s", samples_tokenized)
+        logger.info("Samples processed: %s", tokenization_stats["samples_seen"])
+        logger.info("Samples tokenized: %s", tokenization_stats["samples_tokenized"])
         total_tokens = metadata["train_tokens"] + metadata["validation_tokens"]
         logger.info("Tokens processed: %s", total_tokens)
         logger.info("Actual train tokens: %s", metadata["train_tokens"])

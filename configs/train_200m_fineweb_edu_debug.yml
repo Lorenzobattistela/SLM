@@ -30,28 +30,30 @@ dataset:
 
 tokenizer:
   type: "superbpe"
-  vocab_size: 1000
-  min_frequency: 1
+  vocab_size: 200005
+  pretrained:
+    name: "superbpe-200k-t180k"
+    base_url: "https://raw.githubusercontent.com/PythonNut/superbpe/main/tokenizer_json/olmo2_p99_truncate_10G_180K_extend_200K_mw4_colon"
+    files:
+      - "tokenizer.json"
+      - "vocab.json"
+      - "merges.txt"
+      - "meta.json"
   special_tokens:
-    pad_token: "<pad>"
-    bos_token: "<bos>"
-    eos_token: "<eos>"
-    unk_token: "<unk>"
-  save_dir: "artifacts/tokenizer_debug"
-  train_samples: 100
-  corpus_chunk_samples: 100
-  corpus_num_workers: 2
+    pad_token: "<|padding|>"
+    bos_token: "<|endoftext|>"
+    eos_token: "<|endoftext|>"
+    unk_token: "<|endoftext|>"
+  save_dir: "artifacts/tokenizer_superbpe_200k_t180k"
   append_eos: true
-  superbpe_stage1_vocab_size: 800
-  superbpe_num_inherit_merges: 800
   allow_unverified_superbpe_backend: false
   do_not_fallback_to_standard_bpe_silently: true
 
 model:
   architecture: "decoder_only_transformer"
-  target_parameters: 101000000
-  acceptable_min_parameters: 95000000
-  acceptable_max_parameters: 105000000
+  target_parameters: 253893120
+  acceptable_min_parameters: 250000000
+  acceptable_max_parameters: 260000000
 
   positional_encoding: "rope"
   attention: "mqa"
@@ -61,7 +63,7 @@ model:
   activation: "swiglu"
   normalization: "rmsnorm"
 
-  vocab_size: 1000
+  vocab_size: 200005
   max_seq_len: 2048
   n_layers: 12
   d_model: 768

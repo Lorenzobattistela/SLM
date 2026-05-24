@@ -5,6 +5,8 @@ import json
 import logging
 import os
 import shutil
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -12,6 +14,7 @@ from typing import Any, Iterable
 from src.config.loader import resolve_project_path
 
 LOGGER = logging.getLogger(__name__)
+DEFAULT_PRETRAINED_FILES = ("tokenizer.json", "vocab.json", "merges.txt", "meta.json")
 
 SUPERBPE_STAGE1_REGEX = (
     r"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*"
@@ -69,6 +72,61 @@ def special_token_values(tokenizer_cfg: dict[str, Any]) -> list[str]:
 
 def tokenizer_artifact_path(tokenizer_cfg: dict[str, Any]) -> Path:
     return resolve_project_path(tokenizer_cfg["save_dir"]) / "tokenizer.json"
+
+
+def _pretrained_cfg(tokenizer_cfg: dict[str, Any]) -> dict[str, Any]:
+    pretrained = tokenizer_cfg.get("pretrained")
+    return pretrained if isinstance(pretrained, dict) else {}
+
+
+def _download_file(url: str, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp_target = target.with_suffix(target.suffix + ".tmp")
+    try:
+        with urllib.request.urlopen(url, timeout=120) as response, tmp_target.open("wb") as handle:
+            shutil.copyfileobj(response, handle)
+    except urllib.error.URLError as exc:
+        if tmp_target.exists():
+            tmp_target.unlink()
+        raise SuperBPEError(f"Could not download pretrained SuperBPE artifact: {url}") from exc
+    tmp_target.replace(target)
+
+
+def ensure_pretrained_superbpe_artifacts(tokenizer_cfg: dict[str, Any]) -> None:
+    pretrained = _pretrained_cfg(tokenizer_cfg)
+    if not pretrained:
+        return
+
+    output_dir = resolve_project_path(tokenizer_cfg["save_dir"])
+    output_dir.mkdir(parents=True, exist_ok=True)
+    base_url = str(pretrained.get("base_url", "")).rstrip("/")
+    files = pretrained.get("files", DEFAULT_PRETRAINED_FILES)
+    if not base_url:
+        raise SuperBPEError("tokenizer.pretrained.base_url is required for pretrained SuperBPE.")
+    if not isinstance(files, (list, tuple)) or not files:
+        raise SuperBPEError("tokenizer.pretrained.files must list at least tokenizer.json.")
+
+    downloaded: list[str] = []
+    for filename in files:
+        relative_name = str(filename)
+        target = output_dir / relative_name
+        if target.exists() and target.stat().st_size > 0:
+            continue
+        LOGGER.info("Downloading pretrained SuperBPE artifact: %s", relative_name)
+        _download_file(f"{base_url}/{relative_name}", target)
+        downloaded.append(relative_name)
+
+    if downloaded:
+        metadata = {
+            "tokenizer_type": "superbpe",
+            "source": "pretrained",
+            "name": pretrained.get("name", "unknown"),
+            "base_url": base_url,
+            "files": list(files),
+            "downloaded_files": downloaded,
+            "tokenizer_json": str(tokenizer_artifact_path(tokenizer_cfg)),
+        }
+        write_tokenizer_metadata(output_dir, metadata)
 
 
 def _read_direct_url(dist_name: str) -> str:
@@ -284,11 +342,15 @@ def train_superbpe_tokenizer(
 def load_superbpe_tokenizer(tokenizer_cfg: dict[str, Any]) -> SuperBPETokenizer:
     ensure_superbpe_type(tokenizer_cfg)
     backend = _load_tokenizers_backend(tokenizer_cfg)
+    ensure_pretrained_superbpe_artifacts(tokenizer_cfg)
     tokenizer_path = tokenizer_artifact_path(tokenizer_cfg)
     if not tokenizer_path.exists():
+        hint = (
+            "Configure tokenizer.pretrained for automatic download or run "
+            "scripts/train_tokenizer.py first."
+        )
         raise FileNotFoundError(
-            f"SuperBPE tokenizer artifact not found at {tokenizer_path}. "
-            "Run scripts/train_tokenizer.py first."
+            f"SuperBPE tokenizer artifact not found at {tokenizer_path}. {hint}"
         )
 
     tokenizer = backend["Tokenizer"].from_file(str(tokenizer_path))

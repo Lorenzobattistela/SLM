@@ -5,13 +5,13 @@ NPROC_PER_NODE ?= 2
 CHECKPOINT ?= checkpoints/llm_200m_fineweb_edu/latest.pt
 PROMPT ?= Scientific progress depends on
 
-.PHONY: install train-tokenizer tokenize count train-ddp evaluate sample plot run-all debug-tokenizer debug-tokenize debug-count test
+.PHONY: install prepare-tokenizer tokenize count train-ddp evaluate sample plot run-all debug-tokenizer debug-tokenize debug-count test
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
 
-train-tokenizer:
-	$(PYTHON) scripts/train_tokenizer.py --run-config $(RUN_CONFIG)
+prepare-tokenizer:
+	$(PYTHON) -c "from src.config.loader import load_run_config; from src.tokenizer import load_superbpe_tokenizer; load_superbpe_tokenizer(load_run_config('$(RUN_CONFIG)')['tokenizer'])"
 
 tokenize:
 	$(PYTHON) scripts/tokenize_dataset.py --run-config $(RUN_CONFIG)
@@ -35,7 +35,7 @@ run-all:
 	$(PYTHON) scripts/run_all.py --run-config $(RUN_CONFIG)
 
 debug-tokenizer:
-	$(PYTHON) scripts/train_tokenizer.py --run-config $(DEBUG_CONFIG)
+	$(PYTHON) -c "from src.config.loader import load_run_config; from src.tokenizer import load_superbpe_tokenizer; load_superbpe_tokenizer(load_run_config('$(DEBUG_CONFIG)')['tokenizer'])"
 
 debug-tokenize:
 	$(PYTHON) scripts/tokenize_dataset.py --run-config $(DEBUG_CONFIG)

@@ -1,6 +1,6 @@
 # How To Run
 
-This guide is the runbook for the approximately 192M SLM FineWeb-Edu pipeline. The main entry
+This guide is the runbook for the SLM FineWeb-Edu pipeline. The main entry
 point is the unified YAML config:
 
 ```text
@@ -19,8 +19,7 @@ source .venv/bin/activate
 uv pip install -e ".[dev]"
 ```
 
-Install the SuperBPE tokenizer backend before tokenizer or data-preparation
-commands:
+Install the SuperBPE tokenizer backend before tokenization commands:
 
 ```bash
 git clone --recurse-submodules https://github.com/PythonNut/superbpe.git /tmp/superbpe
@@ -45,7 +44,7 @@ Run all steps with:
 python scripts/run_all.py --run-config configs/train_200m_fineweb_edu.yml
 ```
 
-`run_all.py` trains or loads the tokenizer, tokenizes FineWeb-Edu, checks the
+`run_all.py` tokenizes FineWeb-Edu with the pretrained SuperBPE tokenizer, checks the
 parameter count, launches DDP when CUDA/NCCL is available, evaluates,
 generates plots, and prints a text completion from the latest checkpoint. To prepare everything but print the DDP command instead of
 launching it from the script, use:
@@ -59,19 +58,12 @@ python scripts/run_all.py --run-config configs/train_200m_fineweb_edu.yml --skip
 Run each stage explicitly when debugging or resuming a partial run:
 
 ```bash
-python scripts/train_tokenizer.py --run-config configs/train_200m_fineweb_edu.yml
 python scripts/tokenize_dataset.py --run-config configs/train_200m_fineweb_edu.yml
 python scripts/count_parameters.py --run-config configs/train_200m_fineweb_edu.yml
 torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
 python scripts/evaluate.py --run-config configs/train_200m_fineweb_edu.yml
 python scripts/plot_training.py --run-config configs/train_200m_fineweb_edu.yml
 python scripts/sample_checkpoint.py --run-config configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
-```
-
-Retrain the tokenizer from scratch with:
-
-```bash
-python scripts/train_tokenizer.py --run-config configs/train_200m_fineweb_edu.yml --force
 ```
 
 ## DDP With 2 GPUs
@@ -132,10 +124,10 @@ FineWeb-Edu data is configured in the `dataset` section.
 | `dataset.tokenize_num_workers` | Number of parallel processes used to tokenize dataset shards. Can be overridden with `TOKENIZE_DATASET_WORKERS`. |
 | `dataset.config_name` | Optional Hugging Face dataset configuration name, if a dataset variant needs one. |
 
-`scripts/train_tokenizer.py` streams up to `tokenizer.train_samples` documents
-for the tokenizer corpus. `scripts/tokenize_dataset.py` streams FineWeb-Edu
-again, assigns documents to validation with a deterministic hash split, then
-writes training and validation tokens until the configured targets are reached.
+`scripts/tokenize_dataset.py` streams FineWeb-Edu, downloads/loads the
+configured pretrained SuperBPE artifacts if needed, assigns documents to
+validation with a deterministic hash split, then writes training and validation
+tokens until the configured targets are reached.
 
 ## Tokenizer Hyperparameters
 
@@ -145,20 +137,15 @@ Tokenizer settings live in the `tokenizer` section.
 | --- | --- |
 | `tokenizer.type` | Must be `superbpe`; the config validator rejects other values. |
 | `tokenizer.vocab_size` | Final tokenizer vocabulary size. This should match `model.vocab_size`. |
-| `tokenizer.min_frequency` | Minimum pair/token frequency used during tokenizer training. |
+| `tokenizer.pretrained.name` | Human-readable pretrained tokenizer name. |
+| `tokenizer.pretrained.base_url` | Base URL used to download pretrained tokenizer artifacts. |
+| `tokenizer.pretrained.files` | Artifact file list downloaded into `tokenizer.save_dir`. |
 | `tokenizer.special_tokens.pad_token` | Padding token string. |
 | `tokenizer.special_tokens.bos_token` | Beginning-of-sequence token string. |
 | `tokenizer.special_tokens.eos_token` | End-of-sequence token string. |
-| `tokenizer.special_tokens.unk_token` | Unknown token string passed to the BPE model. |
-| `tokenizer.save_dir` | Directory for `tokenizer.json`, vocab/merge files, corpus chunks, and metadata. |
-| `tokenizer.train_samples` | Maximum number of FineWeb-Edu samples used to train the tokenizer. |
-| `tokenizer.corpus_chunk_samples` | Number of tokenizer-training samples per written corpus chunk file. |
-| `tokenizer.corpus_num_workers` | Number of parallel processes used to stream/filter/write tokenizer corpus shards. Can be overridden with `TOKENIZER_CORPUS_WORKERS`. |
+| `tokenizer.special_tokens.unk_token` | Unknown-token alias used by downstream code. |
+| `tokenizer.save_dir` | Directory for pretrained tokenizer artifacts and metadata. |
 | `tokenizer.append_eos` | Whether dataset tokenization appends the configured EOS token to each sample. |
-| `tokenizer.superbpe_stage1_vocab_size` | Vocabulary size for SuperBPE stage 1. Must be positive and no larger than `tokenizer.vocab_size`. |
-| `tokenizer.superbpe_num_inherit_merges` | Number of stage-1 merges copied into the final SuperBPE stage. |
-| `tokenizer.superbpe_stage1_regex` | Optional override for the first-stage SuperBPE pre-tokenization regex. |
-| `tokenizer.superbpe_stage2_regex` | Optional override for the second-stage SuperBPE pre-tokenization regex. |
 | `tokenizer.allow_unverified_superbpe_backend` | Allows an unverified `tokenizers` package only for explicit development experiments. Keep `false` for final runs. |
 | `tokenizer.do_not_fallback_to_standard_bpe_silently` | Documentation/config guard that records the requirement not to replace SuperBPE with standard BPE silently. |
 
@@ -285,8 +272,8 @@ outputs/llm_200m_fineweb_edu/plots/
 After a complete run, expect these paths:
 
 ```text
-artifacts/tokenizer/tokenizer.json
-artifacts/tokenizer/tokenizer_metadata.json
+artifacts/tokenizer_superbpe_200k_t180k/tokenizer.json
+artifacts/tokenizer_superbpe_200k_t180k/tokenizer_metadata.json
 data/processed/train_tokens.bin
 data/processed/val_tokens.bin
 data/processed/metadata.json

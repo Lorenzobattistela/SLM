@@ -123,6 +123,14 @@ def main() -> None:
     try:
         validate_superbpe_backend(tokenizer_cfg)
 
+        if tokenizer_cfg.get("pretrained"):
+            tokenizer = load_superbpe_tokenizer(tokenizer_cfg)
+            logger.info("Loaded pretrained SuperBPE tokenizer.")
+            logger.info("Vocab size: %s", tokenizer.vocab_size)
+            logger.info("Samples processed: 0")
+            logger.info("Tokens processed: 0")
+            return
+
         if tokenizer_exists(tokenizer_cfg) and not args.force:
             tokenizer = load_superbpe_tokenizer(tokenizer_cfg)
             logger.info("Loaded existing SuperBPE tokenizer.")

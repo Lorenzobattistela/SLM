@@ -14,7 +14,6 @@
 # Optional overrides:
 #   RUN_CONFIG=configs/train_200m_fineweb_edu_debug.yml sbatch run.sh
 #   NPROC_PER_NODE=2 sbatch run.sh
-#   TOKENIZER_CORPUS_WORKERS=8 sbatch run.sh
 #   TOKENIZE_DATASET_WORKERS=8 sbatch run.sh
 #   LOG_EVERY_STEPS=5 sbatch run.sh
 
@@ -27,7 +26,6 @@ PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
 
 RUN_CONFIG="${RUN_CONFIG:-configs/train_200m_fineweb_edu.yml}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-2}"
-TOKENIZER_CORPUS_WORKERS="${TOKENIZER_CORPUS_WORKERS:-${SLURM_CPUS_PER_TASK:-8}}"
 TOKENIZE_DATASET_WORKERS="${TOKENIZE_DATASET_WORKERS:-${SLURM_CPUS_PER_TASK:-8}}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 RUN_ID="${SLURM_JOB_ID:-manual-$(date +%Y%m%d-%H%M%S)}"
@@ -74,13 +72,11 @@ export PYTHONPATH="$PROJECT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
-export TOKENIZER_CORPUS_WORKERS
 export TOKENIZE_DATASET_WORKERS
 
 log "Project dir: $PROJECT_DIR"
 log "Run config: $RUN_CONFIG"
 log "NPROC_PER_NODE: $NPROC_PER_NODE"
-log "TOKENIZER_CORPUS_WORKERS: $TOKENIZER_CORPUS_WORKERS"
 log "TOKENIZE_DATASET_WORKERS: $TOKENIZE_DATASET_WORKERS"
 log "Python: $(command -v "$PYTHON_BIN")"
 log "Full run log: $FULL_RUN_LOG"
@@ -130,9 +126,6 @@ PY
 
 log "Training step logs will be emitted every ${LOG_EVERY_CONFIG} optimizer steps"
 log "Training metrics JSONL: $METRICS_PATH"
-
-run_stage "tokenizer training/loading" \
-  "$PYTHON_BIN" scripts/train_tokenizer.py --run-config "$RUN_CONFIG"
 
 run_stage "dataset tokenization" \
   "$PYTHON_BIN" scripts/tokenize_dataset.py --run-config "$RUN_CONFIG"

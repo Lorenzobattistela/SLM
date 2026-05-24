@@ -1,26 +1,27 @@
 # Tokenizer
 
-The required tokenizer type is SuperBPE. The config enforces `tokenizer.type: "superbpe"` and `do_not_fallback_to_standard_bpe_silently: true`.
+The required tokenizer type is SuperBPE. The config enforces
+`tokenizer.type: "superbpe"` and
+`do_not_fallback_to_standard_bpe_silently: true`.
 
-SuperBPE is different from regular BPE because it uses the SuperBPE backend from the upstream project rather than silently substituting the standard Hugging Face BPE implementation. This matters for reproducibility: if the SuperBPE dependency is missing, the tokenizer scripts stop with an explicit error.
-
-## Training
-
-Tokenizer training reads FineWeb-Edu text through the configured dataset stream, writes corpus chunks, trains the SuperBPE tokenizer, then saves artifacts under:
+The pipeline uses the upstream pretrained SuperBPE 200K tokenizer with
+transition point `t=180K`:
 
 ```text
-artifacts/tokenizer/
+tokenizer_json/olmo2_p99_truncate_10G_180K_extend_200K_mw4_colon/
 ```
 
-Expected artifacts include the tokenizer model files and `tokenizer_metadata.json`. Existing tokenizer artifacts are reused unless `--force` is passed.
+The tokenizer artifacts are downloaded on first use into:
 
-Run:
-
-```bash
-python scripts/train_tokenizer.py --run-config configs/train_200m_fineweb_edu.yml
+```text
+artifacts/tokenizer_superbpe_200k_t180k/
 ```
 
-Install the SuperBPE backend before running tokenizer commands:
+Expected artifacts include `tokenizer.json`, `vocab.json`, `merges.txt`,
+`meta.json`, and `tokenizer_metadata.json`. The project no longer trains a
+SuperBPE tokenizer on the local FineWeb-Edu corpus.
+
+Install the SuperBPE backend before tokenization commands:
 
 ```bash
 git clone --recurse-submodules https://github.com/PythonNut/superbpe.git /tmp/superbpe

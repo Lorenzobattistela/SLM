@@ -2,10 +2,9 @@
 
 The project uses `HuggingFaceFW/fineweb-edu`, a filtered educational subset of FineWeb. It is suitable for this experiment because it is large enough to support the target token budget while keeping the domain focused on higher-quality educational web text.
 
-The training target follows the 20 tokens per parameter rule and rounds up slightly:
+The configured training target is:
 
 ```text
-192.4M parameters * 20 tokens per parameter ~= 3.85B training tokens
 Configured target = 4B training tokens
 ```
 
@@ -13,7 +12,7 @@ Configured target = 4B training tokens
 
 ## Processing
 
-The data scripts support streaming/chunked processing so the full dataset does not need to be held in memory. `scripts/train_tokenizer.py` first writes tokenizer training corpus chunks under the tokenizer artifact directory. `scripts/tokenize_dataset.py` streams text, applies the SuperBPE tokenizer, assigns documents to validation with a deterministic hash split, and writes train/validation token files until the configured targets are reached.
+The data scripts support streaming/chunked processing so the full dataset does not need to be held in memory. `scripts/tokenize_dataset.py` streams text, loads the pretrained SuperBPE tokenizer, assigns documents to validation with a deterministic hash split, and writes train/validation token files until the configured targets are reached.
 
 Tokenized outputs are written under `data/processed/`:
 

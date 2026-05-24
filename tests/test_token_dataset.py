@@ -5,7 +5,12 @@ from array import array
 import numpy as np
 import torch
 
-from src.data.token_dataset import TokenBinDataset, TokenBinWriter, token_dtype_for_vocab
+from src.data.token_dataset import (
+    TokenBinDataset,
+    TokenBinWriter,
+    token_dtype_for_vocab,
+    token_file_token_count,
+)
 
 
 def test_token_dtype_for_vocab_selects_compact_storage() -> None:
@@ -23,6 +28,31 @@ def test_token_bin_writer_respects_target_token_limit(tmp_path) -> None:
     assert first.skipped == 0
     assert second.written == 2
     assert second.skipped == 2
+
+    values = array("H")
+    with output_path.open("rb") as handle:
+        values.fromfile(handle, 5)
+
+    assert list(values) == [1, 2, 3, 4, 5]
+
+
+def test_token_bin_writer_can_append_to_existing_file(tmp_path) -> None:
+    output_path = tmp_path / "tokens.bin"
+    with TokenBinWriter(output_path, vocab_size=50_000, target_tokens=5) as writer:
+        writer.write([1, 2, 3])
+
+    with TokenBinWriter(
+        output_path,
+        vocab_size=50_000,
+        target_tokens=5,
+        append=True,
+    ) as writer:
+        assert writer.tokens_written == 3
+        result = writer.write([4, 5, 6])
+
+    assert result.written == 2
+    assert result.skipped == 1
+    assert token_file_token_count(output_path, "uint16") == 5
 
     values = array("H")
     with output_path.open("rb") as handle:
