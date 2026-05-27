@@ -122,6 +122,24 @@ Generate qualitative completions from a trained checkpoint with:
 python scripts/sample_checkpoint.py --run-config configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
 ```
 
+Run the local decoder-only checkpoint through a Streamlit UI for
+`scripts/sample_checkpoint.py`-style sampling with:
+
+```bash
+python -m pip install -e ".[app]"
+streamlit run apps/streamlit_chatbot.py
+```
+
+Install the SuperBPE backend from the Environment section first; the app uses
+the same local tokenizer artifacts as training and will not silently fall back
+to a standard BPE tokenizer.
+
+The sidebar lets you set the run config, checkpoint path, device, temperature,
+top-k, maximum generated tokens, and output format. By default it uses
+`configs/train_200m_fineweb_edu.yml` and
+`checkpoints/llm_200m_fineweb_edu/latest.pt` when present. If checkpoints were
+extracted under `checkpoints/checkpoints/`, the app detects that nested path.
+
 ## Documentation
 
 See `docs/` for practical notes:
