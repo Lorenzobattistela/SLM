@@ -9,6 +9,7 @@ __pycache__/
 artifacts/
 data/processed*/
 data/manifests/*.json
+outputs/
 runs/
 *.pt
 *.png
