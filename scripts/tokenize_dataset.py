@@ -24,7 +24,7 @@ from src.data.token_dataset import (
     token_file_token_count,
     write_metadata,
 )
-from src.tokenizer import SuperBPEError, load_superbpe_tokenizer
+from src.tokenizer import ByteBPEError, SuperBPEError, load_tokenizer
 
 
 def parse_args() -> argparse.Namespace:
@@ -177,7 +177,7 @@ def _tokenize_shard(
         validation_salt,
         resume_stats,
     ) = args
-    tokenizer = load_superbpe_tokenizer(tokenizer_cfg)
+    tokenizer = load_tokenizer(tokenizer_cfg)
     append_eos = bool(tokenizer_cfg.get("append_eos", True))
     output_dir = Path(shard_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -304,7 +304,7 @@ def tokenize_dataset_parallel(
     append: bool,
     logger: logging.Logger,
 ) -> dict:
-    tokenizer = load_superbpe_tokenizer(tokenizer_cfg)
+    tokenizer = load_tokenizer(tokenizer_cfg)
     shard_dir = processed_dir / "tokenize_shards"
     local_train_target = ceil(target_train_tokens / num_workers)
     local_validation_target = ceil(target_validation_tokens / num_workers)
@@ -431,7 +431,7 @@ def main() -> None:
     logger.info("Dataset tokenization workers: %s", tokenize_workers)
 
     try:
-        tokenizer = load_superbpe_tokenizer(tokenizer_cfg)
+        tokenizer = load_tokenizer(tokenizer_cfg)
         append_eos = bool(tokenizer_cfg.get("append_eos", True))
         existing_state = _existing_tokenization_state(
             metadata_path=metadata_path,
@@ -603,7 +603,7 @@ def main() -> None:
                 metadata["validation_tokens"],
                 target_validation_tokens,
             )
-    except (RuntimeError, OSError, SuperBPEError, FileNotFoundError) as exc:
+    except (RuntimeError, OSError, ByteBPEError, SuperBPEError, FileNotFoundError) as exc:
         raise SystemExit(str(exc)) from None
 
 

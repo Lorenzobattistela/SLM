@@ -145,7 +145,7 @@ def test_parallel_tokenization_returns_aggregated_stats(monkeypatch, tmp_path) -
             if shard_index is None or index % num_shards == shard_index:
                 yield text
 
-    monkeypatch.setattr(tokenize_dataset, "load_superbpe_tokenizer", lambda _cfg: FakeTokenizer())
+    monkeypatch.setattr(tokenize_dataset, "load_tokenizer", lambda _cfg: FakeTokenizer())
     monkeypatch.setattr(tokenize_dataset, "iter_dataset_texts", iter_texts)
     monkeypatch.setattr(
         tokenize_dataset,

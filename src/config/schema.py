@@ -160,23 +160,26 @@ def validate_run_config(config: dict[str, Any]) -> None:
 
     tokenizer = _section(config, "tokenizer")
     tokenizer_type = _required(tokenizer, "type", "tokenizer.type")
-    if tokenizer_type != "superbpe":
-        raise ConfigError("tokenizer.type must be 'superbpe'")
+    if tokenizer_type not in {"superbpe", "byte_bpe"}:
+        raise ConfigError("tokenizer.type must be either 'superbpe' or 'byte_bpe'")
     _require_positive_int(tokenizer, "vocab_size", "tokenizer.vocab_size")
-    pretrained = tokenizer.get("pretrained")
-    if pretrained is not None:
-        pretrained_cfg = _require_mapping(tokenizer, "pretrained", "tokenizer.pretrained")
-        _required(pretrained_cfg, "base_url", "tokenizer.pretrained.base_url")
+    if tokenizer_type == "superbpe":
+        pretrained = tokenizer.get("pretrained")
+        if pretrained is not None:
+            pretrained_cfg = _require_mapping(tokenizer, "pretrained", "tokenizer.pretrained")
+            _required(pretrained_cfg, "base_url", "tokenizer.pretrained.base_url")
+        else:
+            _require_positive_int(tokenizer, "train_samples", "tokenizer.train_samples")
+            _require_optional_positive_int(
+                tokenizer,
+                "corpus_num_workers",
+                "tokenizer.corpus_num_workers",
+            )
+        special_tokens = _require_mapping(tokenizer, "special_tokens", "tokenizer.special_tokens")
+        for token_name in ("pad_token", "bos_token", "eos_token", "unk_token"):
+            _required(special_tokens, token_name, f"tokenizer.special_tokens.{token_name}")
     else:
-        _require_positive_int(tokenizer, "train_samples", "tokenizer.train_samples")
-        _require_optional_positive_int(
-            tokenizer,
-            "corpus_num_workers",
-            "tokenizer.corpus_num_workers",
-        )
-    special_tokens = _require_mapping(tokenizer, "special_tokens", "tokenizer.special_tokens")
-    for token_name in ("pad_token", "bos_token", "eos_token", "unk_token"):
-        _required(special_tokens, token_name, f"tokenizer.special_tokens.{token_name}")
+        _required(tokenizer, "name", "tokenizer.name")
 
     model = _section(config, "model")
     target_parameters = _require_positive_int(
@@ -216,7 +219,9 @@ def validate_run_config(config: dict[str, Any]) -> None:
         "model.flash_attention",
     )
     _require_bool(model, "flash_attention_fallback", "model.flash_attention_fallback")
-    _require_positive_int(model, "vocab_size", "model.vocab_size")
+    model_vocab_size = _require_positive_int(model, "vocab_size", "model.vocab_size")
+    if model_vocab_size != int(tokenizer["vocab_size"]):
+        raise ConfigError("model.vocab_size must match tokenizer.vocab_size")
     _require_positive_int(model, "max_seq_len", "model.max_seq_len")
     _require_positive_int(model, "n_layers", "model.n_layers")
     d_model = _require_positive_int(model, "d_model", "model.d_model")

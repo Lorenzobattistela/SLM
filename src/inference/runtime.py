@@ -11,7 +11,7 @@ from src.data.tokenizer import get_tokenizer
 from src.inference.generate import generate
 from src.model.config import ModelConfig
 from src.model.transformer import TransformerLM
-from src.tokenizer import load_superbpe_tokenizer
+from src.tokenizer import load_tokenizer
 from src.train.checkpoint import load_checkpoint as load_legacy_checkpoint
 from src.training.checkpointing import (
     find_checkpoint,
@@ -80,7 +80,7 @@ def default_prompt(config: dict[str, Any]) -> str:
 
 def load_tokenizer_for_config(config: dict[str, Any]):
     if is_modern_config(config):
-        return load_superbpe_tokenizer(config["tokenizer"])
+        return load_tokenizer(config["tokenizer"])
     return get_tokenizer(config["data"]["tokenizer"]["name"])
 
 

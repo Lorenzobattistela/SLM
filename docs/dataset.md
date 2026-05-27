@@ -25,3 +25,22 @@ Run tokenization with:
 ```bash
 python scripts/tokenize_dataset.py --run-config configs/train_200m_fineweb_edu.yml
 ```
+
+## Byte-Level BPE Retokenization
+
+To compare against a ready byte-level BPE tokenizer without streaming
+FineWeb-Edu again, reconstruct text from the existing SuperBPE `.bin` files and
+write a second processed dataset:
+
+```bash
+python scripts/retokenize_superbpe_to_byte_bpe.py \
+  --run-config configs/train_200m_fineweb_edu.yml \
+  --output-dir data/processed_byte_bpe_gpt2
+```
+
+The output directory contains its own `train_tokens.bin`, `val_tokens.bin`, and
+`metadata.json`. Train against it with:
+
+```bash
+python scripts/train.py --run-config configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml
+```

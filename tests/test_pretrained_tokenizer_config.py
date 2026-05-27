@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.config.schema import validate_run_config
+from src.tokenizer.byte_bpe_tokenizer import ByteBPEError, load_byte_bpe_tokenizer
 from src.tokenizer.superbpe_tokenizer import ensure_pretrained_superbpe_artifacts
 
 
@@ -87,6 +88,42 @@ def test_pretrained_tokenizer_config_does_not_require_training_fields(tmp_path) 
     config = _base_config(tmp_path)
 
     validate_run_config(config)
+
+
+def test_byte_bpe_config_accepts_ready_gpt2_tokenizer(tmp_path) -> None:
+    config = _base_config(tmp_path)
+    config["tokenizer"] = {
+        "type": "byte_bpe",
+        "name": "gpt2",
+        "vocab_size": 50257,
+        "save_dir": str(tmp_path / "tokenizer_byte_bpe_gpt2"),
+    }
+    config["model"]["vocab_size"] = 50257
+
+    validate_run_config(config)
+    tokenizer = load_byte_bpe_tokenizer(config["tokenizer"])
+
+    assert tokenizer.vocab_size == 50257
+    assert tokenizer.encode("hello", add_eos=True)[-1] == tokenizer.eos_token_id
+
+
+def test_byte_bpe_config_rejects_wrong_vocab_size(tmp_path) -> None:
+    config = _base_config(tmp_path)
+    config["tokenizer"] = {
+        "type": "byte_bpe",
+        "name": "gpt2",
+        "vocab_size": 50000,
+        "save_dir": str(tmp_path / "tokenizer_byte_bpe_gpt2"),
+    }
+    config["model"]["vocab_size"] = 50000
+
+    validate_run_config(config)
+    try:
+        load_byte_bpe_tokenizer(config["tokenizer"])
+    except ByteBPEError as exc:
+        assert "50257" in str(exc)
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("Expected ByteBPEError for mismatched GPT-2 vocab size.")
 
 
 def test_pretrained_tokenizer_artifacts_are_downloaded_once(monkeypatch, tmp_path) -> None:

@@ -124,10 +124,19 @@ FineWeb-Edu data is configured in the `dataset` section.
 | `dataset.tokenize_num_workers` | Number of parallel processes used to tokenize dataset shards. Can be overridden with `TOKENIZE_DATASET_WORKERS`. |
 | `dataset.config_name` | Optional Hugging Face dataset configuration name, if a dataset variant needs one. |
 
-`scripts/tokenize_dataset.py` streams FineWeb-Edu, loads the configured local
-SuperBPE artifacts, assigns documents to validation with a deterministic hash
-split, then writes training and validation tokens until the configured targets
-are reached.
+`scripts/tokenize_dataset.py` streams FineWeb-Edu, loads the configured
+tokenizer, assigns documents to validation with a deterministic hash split,
+then writes training and validation tokens until the configured targets are
+reached.
+
+To reuse the existing SuperBPE `.bin` files for a ready GPT-2 byte-level BPE
+comparison, run:
+
+```bash
+python scripts/retokenize_superbpe_to_byte_bpe.py \
+  --run-config configs/train_200m_fineweb_edu.yml \
+  --output-dir data/processed_byte_bpe_gpt2
+```
 
 ## Tokenizer Hyperparameters
 
@@ -135,8 +144,9 @@ Tokenizer settings live in the `tokenizer` section.
 
 | Key | Meaning |
 | --- | --- |
-| `tokenizer.type` | Must be `superbpe`; the config validator rejects other values. |
+| `tokenizer.type` | `superbpe` for the main run, or `byte_bpe` for the ready GPT-2 byte-level BPE comparison. |
 | `tokenizer.vocab_size` | Final tokenizer vocabulary size. This should match `model.vocab_size`. |
+| `tokenizer.name` | Required for `byte_bpe`; use `gpt2` for the ready byte-level BPE tokenizer with vocab size `50257`. |
 | `tokenizer.train_if_missing` | When `false`, fail if `tokenizer.save_dir` does not already contain the local tokenizer artifacts. |
 | `tokenizer.train_samples` | Sample count used only if tokenizer training is explicitly allowed. |
 | `tokenizer.corpus_num_workers` | Corpus-writing workers used only if tokenizer training is explicitly allowed. |

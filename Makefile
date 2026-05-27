@@ -11,7 +11,7 @@ install:
 	$(PYTHON) -m pip install -e ".[dev,app]"
 
 prepare-tokenizer:
-	$(PYTHON) -c "from src.config.loader import load_run_config; from src.tokenizer import load_superbpe_tokenizer; load_superbpe_tokenizer(load_run_config('$(RUN_CONFIG)')['tokenizer'])"
+	$(PYTHON) -c "from src.config.loader import load_run_config; from src.tokenizer import load_tokenizer; load_tokenizer(load_run_config('$(RUN_CONFIG)')['tokenizer'])"
 
 tokenize:
 	$(PYTHON) scripts/tokenize_dataset.py --run-config $(RUN_CONFIG)
@@ -38,7 +38,7 @@ run-all:
 	$(PYTHON) scripts/run_all.py --run-config $(RUN_CONFIG)
 
 debug-tokenizer:
-	$(PYTHON) -c "from src.config.loader import load_run_config; from src.tokenizer import load_superbpe_tokenizer; load_superbpe_tokenizer(load_run_config('$(DEBUG_CONFIG)')['tokenizer'])"
+	$(PYTHON) -c "from src.config.loader import load_run_config; from src.tokenizer import load_tokenizer; load_tokenizer(load_run_config('$(DEBUG_CONFIG)')['tokenizer'])"
 
 debug-tokenize:
 	$(PYTHON) scripts/tokenize_dataset.py --run-config $(DEBUG_CONFIG)

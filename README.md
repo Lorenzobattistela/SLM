@@ -86,6 +86,27 @@ The DDP training command for the 2-GPU run is:
 torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
 ```
 
+## Byte-Level BPE Comparison
+
+To compare against a ready byte-level BPE tokenizer using the same SuperBPE
+tokenized corpus, reconstruct text from the existing `.bin` files and write a
+second processed dataset:
+
+```bash
+python scripts/retokenize_superbpe_to_byte_bpe.py \
+  --run-config configs/train_200m_fineweb_edu.yml \
+  --output-dir data/processed_byte_bpe_gpt2
+```
+
+Then train with the matching GPT-2 byte-level BPE config:
+
+```bash
+torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml
+```
+
+The ready GPT-2 byte-level BPE tokenizer has a 50K-class vocabulary with
+`50257` actual token IDs, so the byte-BPE config uses `model.vocab_size: 50257`.
+
 ## Metrics And Plots
 
 Training metrics are written to:

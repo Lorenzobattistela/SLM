@@ -1,7 +1,7 @@
 project:
-  name: "llm_200m_fineweb_edu"
+  name: "llm_200m_fineweb_edu_byte_bpe_gpt2"
   seed: 42
-  output_dir: "outputs/llm_200m_fineweb_edu"
+  output_dir: "outputs/llm_200m_fineweb_edu_byte_bpe_gpt2"
   docs_dir: "docs"
 
 dataset:
@@ -14,7 +14,7 @@ dataset:
   validation_salt: "slm-pretrain-v1"
   cache_dir: "./data/cache"
   raw_dir: "./data/raw"
-  processed_dir: "../slm-utils/data/processed"
+  processed_dir: "./data/processed_byte_bpe_gpt2"
   tokenize_num_workers: 8
   filters:
     language: "en"
@@ -29,21 +29,11 @@ dataset:
     quality_buffer_size: 10000
 
 tokenizer:
-  type: "superbpe"
-  vocab_size: 50000
-  train_if_missing: false
-  train_samples: 1000000
-  corpus_chunk_samples: 25000
-  corpus_num_workers: 2
-  special_tokens:
-    pad_token: "<pad>"
-    bos_token: "<bos>"
-    eos_token: "<eos>"
-    unk_token: "<unk>"
-  save_dir: "artifacts/tokenizer_superbpe_50k_olmo_p99"
+  type: "byte_bpe"
+  name: "gpt2"
+  vocab_size: 50257
+  save_dir: "artifacts/tokenizer_byte_bpe_gpt2"
   append_eos: true
-  allow_unverified_superbpe_backend: false
-  do_not_fallback_to_standard_bpe_silently: true
 
 model:
   architecture: "decoder_only_transformer"
@@ -59,7 +49,7 @@ model:
   activation: "swiglu"
   normalization: "rmsnorm"
 
-  vocab_size: 50000
+  vocab_size: 50257
   max_seq_len: 2048
   n_layers: 12
   d_model: 1024
@@ -104,7 +94,7 @@ training:
     max_norm: 1.0
 
   checkpointing:
-    save_dir: "checkpoints/llm_200m_fineweb_edu"
+    save_dir: "checkpoints/llm_200m_fineweb_edu_byte_bpe_gpt2"
     save_every_steps: 2000
     keep_last_n: 5
     resume_from: null
@@ -120,13 +110,13 @@ evaluation:
 logging:
   log_every_steps: 10
   use_tensorboard: true
-  tensorboard_dir: "outputs/llm_200m_fineweb_edu/tensorboard"
+  tensorboard_dir: "outputs/llm_200m_fineweb_edu_byte_bpe_gpt2/tensorboard"
   use_wandb: false
-  wandb_project: "llm_200m_fineweb_edu"
+  wandb_project: "llm_200m_fineweb_edu_byte_bpe_gpt2"
 
 plots:
   enabled: true
-  output_dir: "outputs/llm_200m_fineweb_edu/plots"
+  output_dir: "outputs/llm_200m_fineweb_edu_byte_bpe_gpt2/plots"
   keep_existing_plots: true
   generate:
     - "train_loss"
