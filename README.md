@@ -1,181 +1,86 @@
-# FineWeb-Edu Language Model
+# SLM FineWeb-Edu
 
-This project builds a decoder-only language model with a FineWeb-Edu
-pretraining pipeline. The main run is configured through YAML and is intended
-for a Linux machine with 2 NVIDIA GPUs.
+Este repositório implementa um pipeline de pré-treinamento para um Small
+Language Model decoder-only em FineWeb-Edu. Ele reúne preparação de dados,
+tokenização, configuração YAML, treinamento distribuído, avaliação, geração de
+plots e inferência a partir de checkpoints locais.
 
-## Objective
+O foco do projeto é comparar o mesmo fluxo de modelo e dados com dois
+tokenizadores de vocabulário na faixa de 50K:
 
-- Train a decoder-only Transformer for next-token prediction.
-- Use the locally trained SuperBPE 50K tokenizer from `tokenizer/` without
-  silently falling back to standard BPE.
-- Pretrain on FineWeb-Edu with a 4B token target.
-- Support full-pipeline and independent-step execution.
-- Preserve training plots and write practical project documentation under `docs/`.
+- **SuperBPE 50K local**: tokenizador principal treinado neste repositório a
+  partir do backend SuperBPE, sem substituição silenciosa por BPE padrão.
+- **GPT-2 byte-level BPE**: baseline pronto via `tiktoken`, com `50257` IDs,
+  usado para retokenizar o corpus SuperBPE e comparar o impacto da tokenização.
 
-## Architecture
+O modelo usa RoPE, Grouped-Query Attention, Flash Attention quando disponível,
+SwiGLU, RMSNorm e cabeça de linguagem com embeddings compartilháveis. As
+configs principais ficam em `configs/`, os scripts de execução em `scripts/`,
+os componentes Python em `src/` e as análises exploratórias em `notebooks/`.
 
-The model uses RoPE positional encoding, Grouped-Query Attention, Flash Attention when available with a safe fallback, SwiGLU feed-forward layers, RMSNorm, and a tied language-modeling head when enabled. With the local 50K tokenizer, the configured parameter count is 195,929,088.
+## Documentação
 
-Check the parameter count with:
+- [docs/architecture.md](docs/architecture.md)
+  Explica os blocos do Transformer decoder-only, incluindo RoPE, GQA, Flash
+  Attention, SwiGLU, RMSNorm e contagem de parâmetros.
 
-```bash
-python scripts/count_parameters.py --run-config configs/train_200m_fineweb_edu.yml
-```
+- [docs/configs.md](docs/configs.md)
+  Resume a estrutura dos arquivos YAML e o papel das seções `project`,
+  `dataset`, `tokenizer`, `model`, `training`, `evaluation`, `logging` e `plots`.
 
-## Dataset And Tokens
+- [docs/dataset.md](docs/dataset.md)
+  Descreve o uso do FineWeb-Edu, a meta de tokens, os artefatos processados e o
+  fluxo de retokenização para GPT-2 byte-level BPE.
 
-The main dataset is `HuggingFaceFW/fineweb-edu`. The token target is:
+- [docs/distributed_training.md](docs/distributed_training.md)
+  Detalha a execução com PyTorch DistributedDataParallel, a divisão por GPUs,
+  responsabilidades do rank 0 e pontos comuns de diagnóstico.
 
-```text
-Configured target = 4B training tokens
-```
+- [docs/examples.md](docs/examples.md)
+  Centraliza os exemplos de comandos que antes ficavam no README: ambiente,
+  tokenização, treino, avaliação, plots, inferência e app Streamlit.
 
-The main config writes processed token files to `data/processed/train_tokens.bin`, `data/processed/val_tokens.bin`, and `data/processed/metadata.json`.
+- [docs/how-to-run.md](docs/how-to-run.md)
+  Funciona como runbook detalhado do projeto, com ambiente, pipeline completo,
+  etapas independentes, campos de configuração e saídas esperadas.
 
-## Environment
+- [docs/running.md](docs/running.md)
+  Traz uma versão curta dos modos de execução: pipeline completo, etapas
+  independentes, comando DDP e diretório padrão dos plots.
 
-```bash
-uv venv --python /usr/bin/python3.12 .venv
-source .venv/bin/activate
-uv pip install -e ".[dev]"
-```
+- [docs/streamlit.md](docs/streamlit.md)
+  Documenta a interface Streamlit para amostrar checkpoints locais, incluindo
+  instalação, execução, controles da sidebar e problemas comuns.
 
-Install the SuperBPE backend before tokenization commands:
+- [docs/tokenizer.md](docs/tokenizer.md)
+  Explica a preparação do SuperBPE local, os artefatos esperados e a comparação
+  com o GPT-2 byte-level BPE.
 
-```bash
-git clone --recurse-submodules https://github.com/PythonNut/superbpe.git /tmp/superbpe
-pip install -e /tmp/superbpe/tokenizers_superbpe/bindings/python/
-```
+- [docs/training.md](docs/training.md)
+  Documenta o comportamento do treinamento: AdamW, bf16, acumulação de
+  gradiente, scheduler, checkpoints, logs JSONL e métricas geradas.
 
-Use Python 3.10-3.12 for this project. The SuperBPE tokenizer fork depends on
-PyO3 0.21, which does not build against Python 3.13+.
+## Notebooks
 
-## YAML Config Usage
+- [notebooks/tokenizer_eval.ipynb](notebooks/tokenizer_eval.ipynb): compara
+  propriedades dos tokenizadores em amostras do FineWeb-Edu.
+- [notebooks/processed_metadata_training_plots.ipynb](notebooks/processed_metadata_training_plots.ipynb):
+  lê `metadata.json` de diretórios processados e reproduz inline os mesmos
+  plots de treino definidos em `src/plotting/training_plots.py`.
 
-The main config is `configs/train_200m_fineweb_edu.yml`. All modern scripts use:
+## Plots de Loss
 
-```bash
---run-config configs/train_200m_fineweb_edu.yml
-```
+### GPT-2 byte-level BPE
 
-It contains `project`, `dataset`, `tokenizer`, `model`, `training`, `evaluation`, `logging`, and `plots` sections.
+![Loss de validação do GPT-2 byte-level BPE](plot_images/bbpe_val_loss.png)
 
-## Full Pipeline
+### SuperBPE
 
-```bash
-python scripts/run_all.py --run-config configs/train_200m_fineweb_edu.yml
-```
+![Loss de validação do SuperBPE](plot_images/superbpe_val_loss.png)
 
-`run_all.py` tokenizes data with the configured local tokenizer, checks parameters, launches DDP when CUDA/NCCL is available, evaluates, generates plots, and prints a text completion from the latest checkpoint. If DDP cannot be launched safely, it prints the manual command.
+## Artefatos
 
-## Independent Steps
-
-```bash
-python scripts/tokenize_dataset.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/count_parameters.py --run-config configs/train_200m_fineweb_edu.yml
-torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/evaluate.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/plot_training.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/sample_checkpoint.py --run-config configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
-```
-
-The DDP training command for the 2-GPU run is:
-
-```bash
-torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
-```
-
-## Byte-Level BPE Comparison
-
-To compare against a ready byte-level BPE tokenizer using the same SuperBPE
-tokenized corpus, reconstruct text from the existing `.bin` files and write a
-second processed dataset:
-
-```bash
-python scripts/retokenize_superbpe_to_byte_bpe.py \
-  --run-config configs/train_200m_fineweb_edu.yml \
-  --output-dir data/processed_byte_bpe_gpt2
-```
-
-Then train with the matching GPT-2 byte-level BPE config:
-
-```bash
-torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml
-```
-
-The ready GPT-2 byte-level BPE tokenizer has a 50K-class vocabulary with
-`50257` actual token IDs, so the byte-BPE config uses `model.vocab_size: 50257`.
-
-## Metrics And Plots
-
-Training metrics are written to:
-
-```text
-outputs/llm_200m_fineweb_edu/logs/metrics.jsonl
-```
-
-Training run metadata is written to:
-
-```text
-outputs/llm_200m_fineweb_edu/logs/training_metadata.json
-```
-
-Plots are written to:
-
-```text
-outputs/llm_200m_fineweb_edu/plots/
-```
-
-Generate plots with:
-
-```bash
-python scripts/plot_training.py --run-config configs/train_200m_fineweb_edu.yml
-```
-
-The legacy `scripts/plot_train_loss.py` script is preserved for older metrics workflows.
-
-## Text Generation
-
-Generate qualitative completions from a trained checkpoint with:
-
-```bash
-python scripts/sample_checkpoint.py --run-config configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
-```
-
-Run the local decoder-only checkpoint through a Streamlit UI for
-`scripts/sample_checkpoint.py`-style sampling with:
-
-```bash
-python -m pip install -e ".[app]"
-streamlit run apps/streamlit_chatbot.py
-```
-
-Install the SuperBPE backend from the Environment section first; the app uses
-the same local tokenizer artifacts as training and will not silently fall back
-to a standard BPE tokenizer.
-
-The sidebar lets you set the run config, checkpoint path, device, temperature,
-top-k, maximum generated tokens, and output format. By default it uses
-`configs/train_200m_fineweb_edu.yml` and
-`checkpoints/llm_200m_fineweb_edu/latest.pt` when present. If checkpoints were
-extracted under `checkpoints/checkpoints/`, the app detects that nested path.
-
-## Documentation
-
-See `docs/` for practical notes:
-
-- `docs/architecture.md`
-- `docs/dataset.md`
-- `docs/tokenizer.md`
-- `docs/training.md`
-- `docs/distributed_training.md`
-- `docs/configs.md`
-- `docs/running.md`
-- `docs/how-to-run.md`
-
-## Notes
-
-- Do not commit full datasets, checkpoints, or generated run artifacts.
-- Use the debug config for small local checks.
-- Do not claim a full training run is complete unless the training command has actually been run to completion.
+Dados processados, checkpoints, corpora de tokenizador e plots gerados devem
+permanecer fora do versionamento quando forem grandes. Use as configs de debug
+para checagens locais pequenas e só considere uma execução completa quando o
+comando de treino tiver terminado de fato.

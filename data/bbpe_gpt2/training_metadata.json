@@ -1,0 +1,40 @@
+{
+  "event": "training_start",
+  "created_at": "2026-05-27T22:50:30.513674+00:00",
+  "project": "llm_200m_fineweb_edu_byte_bpe_gpt2",
+  "precision": "bf16",
+  "device": "cuda:0",
+  "ddp": true,
+  "world_size": 2,
+  "parameters": 200910848,
+  "model": {
+    "architecture": "decoder_only_transformer",
+    "attention": "gqa",
+    "flash_attention": true,
+    "num_attention_heads": 16,
+    "num_key_value_heads": 4,
+    "head_dim": 64,
+    "layers": 12,
+    "d_model": 1024,
+    "context_length": 2048
+  },
+  "attention_optimization": {
+    "backend": "sdpa_flash",
+    "flash_requested": true,
+    "flash_available": true,
+    "enable_gqa": true,
+    "detail": "Flash SDPA probe passed dtype=torch.bfloat16 enable_gqa=True"
+  },
+  "training": {
+    "micro_batch_size": 4,
+    "gradient_accumulation_steps": 16,
+    "effective_batch_size": 128,
+    "tokens_per_step": 262144,
+    "total_steps": 15641,
+    "max_tokens": 4100000000
+  },
+  "dataset": {
+    "train_tokens": 4000000000,
+    "validation_tokens": 10000000
+  }
+}
