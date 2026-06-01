@@ -17,9 +17,11 @@ from src.inference.runtime import (  # noqa: E402
     load_inference_config,
 )
 
-DEFAULT_RUN_CONFIG = "configs/train_200m_fineweb_edu.yml"
-CONFIG_DEFAULT_CHECKPOINT = "checkpoints/llm_200m_fineweb_edu/latest.pt"
+# CONFIG_DEFAULT_CHECKPOINT = "checkpoints/llm_200m_fineweb_edu/latest.pt"
 
+# DEFAULT_RUN_CONFIG = "configs/train_200m_fineweb_edu.yml"
+DEFAULT_RUN_CONFIG = "configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml"
+CONFIG_DEFAULT_CHECKPOINT = "checkpoints/pre_train_finals/bbpe_pre_train.pt"
 
 def default_checkpoint_path() -> str:
     candidates = [
