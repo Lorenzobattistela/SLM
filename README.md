@@ -48,9 +48,17 @@ os componentes Python em `src/` e as análises exploratórias em `notebooks/`.
   Traz uma versão curta dos modos de execução: pipeline completo, etapas
   independentes, comando DDP e diretório padrão dos plots.
 
+- [docs/results.md](docs/results.md)
+  Resume os resultados finais de validação dos modelos SuperBPE e GPT-2
+  byte-level BPE, com os gráficos salvos em `plot_images/`.
+
 - [docs/streamlit.md](docs/streamlit.md)
   Documenta a interface Streamlit para amostrar checkpoints locais, incluindo
   instalação, execução, controles da sidebar e problemas comuns.
+
+- [docs/text_generation_examples.md](docs/text_generation_examples.md)
+  Mostra exemplos visuais de geração de texto salvos em
+  `data/text_generation_examples/`.
 
 - [docs/tokenizer.md](docs/tokenizer.md)
   Explica a preparação do SuperBPE local, os artefatos esperados e a comparação
