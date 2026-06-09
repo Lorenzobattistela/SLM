@@ -1,12 +1,15 @@
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
 .ruff_cache/
 .venv/
 .DS_Store
-
-data/processed/
+checkpoints/
+artifacts/
+data/processed*/
 data/manifests/*.json
+outputs/
 runs/
 *.pt
 *.png

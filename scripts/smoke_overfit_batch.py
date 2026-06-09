@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 
 import numpy as np
-import torch
 
 from src.config import load_run_config, resolve_project_path
 from src.data.dataset import TokenShardDataset

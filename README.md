@@ -1,81 +1,94 @@
-# Small Language Model - Pretraining Scaffold
+# SLM FineWeb-Edu
 
-This repository contains the first-stage pretraining pipeline for the Deep Learning II SLM project. The initial focus is a decoder-only Transformer trained with next-token prediction, plus the tooling needed to validate the pipeline locally on tiny datasets before launching larger runs on a Linux machine with NVIDIA GPUs.
+Este repositório implementa um pipeline de pré-treinamento para um Small
+Language Model decoder-only em FineWeb-Edu. Ele reúne preparação de dados,
+tokenização, configuração YAML, treinamento distribuído, avaliação, geração de
+plots e inferência a partir de checkpoints locais.
 
-## Current Scope
+O foco do projeto é comparar o mesmo fluxo de modelo e dados com dois
+tokenizadores de vocabulário na faixa de 50K:
 
-- Streaming data preparation from Hugging Face datasets
-- Deterministic train/validation split
-- GPT-2 BPE tokenization with packed token shards
-- Decoder-only Transformer with RoPE, GQA, SwiGLU and RMSNorm
-- Pretraining loop with checkpointing, validation perplexity and text sampling
-- Tiny/debug/pilot/full presets for local and remote execution
+- **SuperBPE 50K local**: tokenizador principal treinado neste repositório a
+  partir do backend SuperBPE, sem substituição silenciosa por BPE padrão.
+- **GPT-2 byte-level BPE**: baseline pronto via `tiktoken`, com `50257` IDs,
+  usado para retokenizar o corpus SuperBPE e comparar o impacto da tokenização.
 
-## Environment
+O modelo usa RoPE, Grouped-Query Attention, Flash Attention quando disponível,
+SwiGLU, RMSNorm e cabeça de linguagem com embeddings compartilháveis. As
+configs principais ficam em `configs/`, os scripts de execução em `scripts/`,
+os componentes Python em `src/` e as análises exploratórias em `notebooks/`.
 
-Create a virtual environment and install dependencies:
+## Documentação
 
-```bash
-uv venv .venv
-source .venv/bin/activate
-uv pip install -e ".[dev]"
-```
+- [docs/architecture.md](docs/architecture.md)
+  Explica os blocos do Transformer decoder-only, incluindo RoPE, GQA, Flash
+  Attention, SwiGLU, RMSNorm e contagem de parâmetros.
 
-MacBook runs should stay on `tiny` or short `debug` checks. Real pretraining should run on the Linux box with CUDA.
+- [docs/configs.md](docs/configs.md)
+  Resume a estrutura dos arquivos YAML e o papel das seções `project`,
+  `dataset`, `tokenizer`, `model`, `training`, `evaluation`, `logging` e `plots`.
 
-## Config Layout
+- [docs/dataset.md](docs/dataset.md)
+  Descreve o uso do FineWeb-Edu, a meta de tokens, os artefatos processados e o
+  fluxo de retokenização para GPT-2 byte-level BPE.
 
-- `configs/model/`: architecture presets
-- `configs/data/`: dataset/token-budget presets
-- `configs/run/`: runnable training presets that compose model + data + optimizer settings
+- [docs/distributed_training.md](docs/distributed_training.md)
+  Detalha a execução com PyTorch DistributedDataParallel, a divisão por GPUs,
+  responsabilidades do rank 0 e pontos comuns de diagnóstico.
 
-## Suggested Workflow
+- [docs/examples.md](docs/examples.md)
+  Centraliza os exemplos de comandos que antes ficavam no README: ambiente,
+  tokenização, treino, avaliação, plots, inferência e app Streamlit.
 
-1. Prepare a tiny local dataset:
+- [docs/how-to-run.md](docs/how-to-run.md)
+  Funciona como runbook detalhado do projeto, com ambiente, pipeline completo,
+  etapas independentes, campos de configuração e saídas esperadas.
 
-```bash
-python3 scripts/prepare_pretrain_data.py --data-config configs/data/fineweb_edu_tiny.yaml
-```
+- [docs/running.md](docs/running.md)
+  Traz uma versão curta dos modos de execução: pipeline completo, etapas
+  independentes, comando DDP e diretório padrão dos plots.
 
-2. Overfit a single batch to validate the pipeline:
+- [docs/results.md](docs/results.md)
+  Resume os resultados finais de validação dos modelos SuperBPE e GPT-2
+  byte-level BPE, com os gráficos salvos em `plot_images/`.
 
-```bash
-python3 scripts/smoke_overfit_batch.py --run-config configs/run/pretrain_local_tiny.yaml
-```
+- [docs/streamlit.md](docs/streamlit.md)
+  Documenta a interface Streamlit para amostrar checkpoints locais, incluindo
+  instalação, execução, controles da sidebar e problemas comuns.
 
-3. Run a tiny local training session:
+- [docs/text_generation_examples.md](docs/text_generation_examples.md)
+  Mostra exemplos visuais de geração de texto salvos em
+  `data/text_generation_examples/`.
 
-```bash
-python3 -m src.train.pretrain --run-config configs/run/pretrain_local_tiny.yaml
-```
+- [docs/tokenizer.md](docs/tokenizer.md)
+  Explica a preparação do SuperBPE local, os artefatos esperados e a comparação
+  com o GPT-2 byte-level BPE.
 
-4. Sample from the latest checkpoint:
+- [docs/training.md](docs/training.md)
+  Documenta o comportamento do treinamento: AdamW, bf16, acumulação de
+  gradiente, scheduler, checkpoints, logs JSONL e métricas geradas.
 
-```bash
-python3 scripts/sample_checkpoint.py \
-  --checkpoint runs/pretrain_local_tiny/checkpoints/latest.pt \
-  --prompt "Language models are useful because"
-```
+## Notebooks
 
-5. Plot training loss:
+- [notebooks/tokenizer_eval.ipynb](notebooks/tokenizer_eval.ipynb): compara
+  propriedades dos tokenizadores em amostras do FineWeb-Edu.
+- [notebooks/processed_metadata_training_plots.ipynb](notebooks/processed_metadata_training_plots.ipynb):
+  lê `metadata.json` de diretórios processados e reproduz inline os mesmos
+  plots de treino definidos em `src/plotting/training_plots.py`.
 
-```bash
-python3 scripts/plot_train_loss.py --metrics runs/pretrain_local_tiny/metrics.jsonl
-```
+## Plots de Loss
 
-## Remote GPU Runs
+### GPT-2 byte-level BPE
 
-Once the Linux machine is ready and the dataset has been prepared there, use:
+![Loss de validação do GPT-2 byte-level BPE](plot_images/bbpe_val_loss.png)
 
-```bash
-bash scripts/launch_pretrain_ddp.sh configs/run/pretrain_remote_full_2gpu.yaml
-```
+### SuperBPE
 
-This launches `torchrun` with the run config already set up for a 2-GPU pretraining job.
+![Loss de validação do SuperBPE](plot_images/superbpe_val_loss.png)
 
-## Notes
+## Artefatos
 
-- Generated artifacts live under `data/processed/` and `runs/`.
-- The full dataset should not be committed.
-- Checkpoints should be uploaded externally for the course delivery.
-- For the first milestone, GPT-2 BPE is the safest tokenizer choice. If needed, a custom tokenizer can be added later without rewriting the trainer.
+Dados processados, checkpoints, corpora de tokenizador e plots gerados devem
+permanecer fora do versionamento quando forem grandes. Use as configs de debug
+para checagens locais pequenas e só considere uma execução completa quando o
+comando de treino tiver terminado de fato.

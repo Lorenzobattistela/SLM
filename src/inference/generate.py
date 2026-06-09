@@ -20,11 +20,11 @@ def generate(
         idx_cond = output[:, -context_length:]
         logits, _ = model(idx_cond)
         next_token_logits = logits[:, -1, :]
-        if temperature <= 0:
+        if temperature <= 0: #greedy
             next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
         else:
             next_token_logits = next_token_logits / temperature
-            if top_k is not None:
+            if top_k is not None: #top k sampling
                 values, _ = torch.topk(next_token_logits, k=top_k)
                 threshold = values[:, [-1]]
                 next_token_logits = next_token_logits.masked_fill(
