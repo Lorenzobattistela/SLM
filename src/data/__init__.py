@@ -12,6 +12,7 @@ from src.data.token_dataset import (
     TokenWriteResult,
     token_dtype_for_vocab,
 )
+from src.data.mid_train_dataset import prepare_mid_train_data
 
 __all__ = [
     "CorpusWriteStats",
@@ -22,4 +23,6 @@ __all__ = [
     "load_configured_dataset",
     "token_dtype_for_vocab",
     "write_training_corpus",
+    "prepare_mid_train_data",
 ]
+

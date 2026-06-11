@@ -1,0 +1,101 @@
+project:
+  name: "llm_200m_mid_training_debug"
+  seed: 42
+  output_dir: "outputs/llm_200m_mid_training_debug"
+  docs_dir: "docs"
+
+dataset:
+  smoltalk: "HuggingFaceTB/smoltalk"
+  gsm8k: "gsm8k"
+  mix_ratio:
+    smoltalk: 0.7
+    gsm8k: 0.3
+  target_train_tokens: 50000
+  validation_ratio: 0.05
+  cache_dir: "./data/cache"
+  processed_dir: "outputs/llm_200m_mid_training_debug/processed"
+  tokenize_num_workers: 2
+
+tokenizer:
+  type: "superbpe"
+  vocab_size: 50000
+  special_tokens:
+    pad_token: "<pad>"
+    bos_token: "<bos>"
+    eos_token: "<eos>"
+    unk_token: "<unk>"
+  save_dir: "artifacts/tokenizer_superbpe_50k_olmo_p99"
+  append_eos: true
+  allow_unverified_superbpe_backend: true
+  do_not_fallback_to_standard_bpe_silently: true
+
+model:
+  architecture: "decoder_only_transformer"
+  positional_encoding: "rope"
+  attention: "gqa"
+  flash_attention: false
+  flash_attention_fallback: true
+  activation: "swiglu"
+  normalization: "rmsnorm"
+  vocab_size: 50000
+  max_seq_len: 2048
+  n_layers: 2
+  d_model: 256
+  num_attention_heads: 4
+  num_key_value_heads: 2
+  ffn_multiplier: 2.0
+  multiple_of: 32
+  norm_eps: 1.0e-5
+  rope_theta: 10000.0
+  dropout: 0.0
+  tie_embeddings: true
+
+training:
+  distributed:
+    enabled: false
+    backend: "gloo"
+    strategy: "ddp"
+    num_gpus: 0
+
+  precision: "fp32"
+  compile_model: false
+
+  micro_batch_size: 2
+  gradient_accumulation_steps: 2
+  max_steps: null
+  max_tokens: 50000
+
+  optimizer:
+    name: "adamw"
+    learning_rate: 1.5e-4
+    betas: [0.9, 0.95]
+    eps: 1.0e-8
+    weight_decay: 0.1
+
+  scheduler:
+    name: "cosine"
+    warmup_steps: 10
+    min_lr: 1.5e-5
+
+  gradient_clipping:
+    enabled: true
+    max_norm: 1.0
+
+  checkpointing:
+    resume_from: null
+    save_dir: "outputs/llm_200m_mid_training_debug/checkpoints"
+    save_every_steps: 10
+    keep_last_n: 2
+
+evaluation:
+  enabled: true
+  eval_every_steps: 5
+  eval_steps: 2
+
+logging:
+  log_every_steps: 1
+
+plots:
+  enabled: true
+  output_dir: "outputs/llm_200m_mid_training_debug/plots"
+  keep_existing_plots: true
