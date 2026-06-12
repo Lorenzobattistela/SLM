@@ -41,6 +41,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Override the maximum number of samples to evaluate per dataset (e.g. for fast debugging).",
     )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Optional path to save evaluation results in JSON format. Defaults to outputs/evaluation_results.json.",
+    )
     return parser.parse_args()
 
 
@@ -146,10 +152,13 @@ def main() -> None:
     print("====================================================\n")
 
     # Save results to JSON file
-    output_dir = resolve_project_path("outputs")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / "evaluation_results.json"
+    if args.output:
+        output_file = resolve_project_path(args.output)
+    else:
+        output_dir = resolve_project_path("outputs")
+        output_file = output_dir / "evaluation_results.json"
     
+    output_file.parent.mkdir(parents=True, exist_ok=True)
     with output_file.open("w", encoding="utf-8") as handle:
         json.dump(results, handle, indent=2)
     LOGGER.info("Saved evaluation results to %s", output_file)
