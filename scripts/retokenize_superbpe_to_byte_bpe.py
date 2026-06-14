@@ -11,7 +11,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+def _find_project_root(start: Path) -> Path:
+    for parent in (start.parent, *start.parents):
+        if (parent / "pyproject.toml").exists() and (parent / "src").is_dir():
+            return parent
+    raise RuntimeError(f"Could not locate project root from {start}")
+
+
+PROJECT_ROOT = _find_project_root(Path(__file__).resolve())
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -266,7 +274,9 @@ def main() -> None:
             source_tokenizer_cfg["vocab_size"] = int(source_metadata["vocab_size"])
 
     source_vocab_size = int(source_metadata.get("vocab_size", source_tokenizer_cfg["vocab_size"]))
-    source_dtype = str(source_metadata.get("storage_dtype") or token_dtype_for_vocab(source_vocab_size))
+    source_dtype = str(
+        source_metadata.get("storage_dtype") or token_dtype_for_vocab(source_vocab_size)
+    )
     source_train_path = source_processed_dir / "train_tokens.bin"
     source_val_path = source_processed_dir / "val_tokens.bin"
     if not source_train_path.exists() or not source_val_path.exists():

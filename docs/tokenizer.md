@@ -8,13 +8,13 @@ The pipeline uses the locally trained SuperBPE 50K tokenizer created by the
 scripts in `tokenizer/`:
 
 ```text
-artifacts/tokenizer_superbpe_50k_olmo_p99/
+pre-train/artifacts/tokenizer_superbpe_50k_olmo_p99/
 ```
 
 Train or refresh those artifacts with:
 
 ```bash
-bash tokenizer/run_tokenizer.sh
+bash pre-train/tokenizer/run_tokenizer.sh
 ```
 
 Expected artifacts include `tokenizer.json`, `vocab.json`, `merges.txt`,
@@ -37,7 +37,7 @@ the reconstruction/retokenization script:
 
 ```bash
 python scripts/retokenize_superbpe_to_byte_bpe.py \
-  --run-config configs/train_200m_fineweb_edu.yml \
+  --run-config pre-train/configs/train_200m_fineweb_edu.yml \
   --output-dir data/processed_byte_bpe_gpt2
 ```
 
@@ -50,5 +50,5 @@ standard ready 50K-class byte-level BPE tokenizer; its actual vocabulary size is
 The matching training config is:
 
 ```bash
-configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml
+pre-train/configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml
 ```

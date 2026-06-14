@@ -5,7 +5,7 @@ There are two supported execution modes: the full pipeline and independent steps
 ## Full Pipeline
 
 ```bash
-python scripts/run_all.py --run-config configs/train_200m_fineweb_edu.yml
+python pre-train/scripts/run_all.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
 ```
 
 `run_all.py` tokenizes the dataset with the configured local SuperBPE tokenizer, checks the model parameter count, launches DDP training when CUDA/NCCL is available, runs evaluation, generates plots from the metrics file, and prints a text completion from the latest checkpoint.
@@ -13,18 +13,18 @@ python scripts/run_all.py --run-config configs/train_200m_fineweb_edu.yml
 If DDP cannot be launched safely from the script, it prints the command to run manually:
 
 ```bash
-torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
+torchrun --standalone --nproc_per_node=2 pre-train/scripts/train.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
 ```
 
 ## Independent Steps
 
 ```bash
-python scripts/tokenize_dataset.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/count_parameters.py --run-config configs/train_200m_fineweb_edu.yml
-torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/evaluate.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/plot_training.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/sample_checkpoint.py --run-config configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
+python pre-train/scripts/tokenize_dataset.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+python scripts/count_parameters.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+torchrun --standalone --nproc_per_node=2 pre-train/scripts/train.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+python benchmarks/scripts/evaluate.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+python scripts/plot_training.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+python scripts/sample_checkpoint.py --run-config pre-train/configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
 ```
 
 Plots are written to:
@@ -35,41 +35,51 @@ outputs/llm_200m_fineweb_edu/plots/
 
 ## Unified Training & Evaluation Pipeline (Mid-Training, SFT, & Benchmark Evaluation)
 
-A unified bash/SLURM pipeline script, [run_pipeline.sh](file:///C:/Users/arthu/OneDrive/%C3%81rea%20de%20Trabalho/CDIA/profundo%202/SLM/run_pipeline.sh), automates mid-training, supervised fine-tuning (SFT), and downstream evaluation in a single command. It is compatible with both SLURM clusters and local environments.
+A unified bash/SLURM pipeline script, `scripts/run_pipeline.sh`, automates mid-training, supervised fine-tuning (SFT), and downstream evaluation in a single command. It is compatible with both SLURM clusters and local environments.
 
 ### Execution Modes
 
 #### 1. Full Run on SLURM Cluster (Recommended)
 Submit the job to a SLURM queue:
 ```bash
-sbatch run_pipeline.sh
+sbatch scripts/run_pipeline.sh
 ```
 This runs with standard configs:
-- Mid-training on mixed SmolTalk + GSM8K (`configs/mid_train_200m.yml`)
-- Fine-tuning SFT on SmolTalk (`configs/sft_200m.yml`)
-- Zero-shot evaluations for perplexity, HellaSwag, ARC-Easy, PIQA, WinoGrande, and GSM8K (`configs/eval.yml`) on both final checkpoints
+- SuperBPE mid-training/SFT (`mid-training/configs/mid_train_200m_superbpe.yml`,
+  `supervised-fine-tuning/configs/sft_200m_superbpe.yml`)
+- GPT-2 Byte BPE mid-training/SFT (`mid-training/configs/mid_train_200m_byte_bpe_gpt2.yml`,
+  `supervised-fine-tuning/configs/sft_200m_byte_bpe_gpt2.yml`)
+- Zero-shot evaluations for perplexity, HellaSwag, ARC-Easy, PIQA, WinoGrande, and GSM8K (`benchmarks/configs/eval.yml`) on both final checkpoints
 
 #### 2. Debug Run (Quick Test)
 Run a lightweight, quick-termination run to verify the installation and dataset streaming:
 ```bash
 # On a cluster via sbatch
-sbatch run_pipeline.sh --debug
+sbatch scripts/run_pipeline.sh --debug
 
 # Locally
-./run_pipeline.sh --debug
+./scripts/run_pipeline.sh --debug
 ```
 Debug mode automatically swaps out standard configurations for their `_debug.yml` equivalents and caps downstream evaluations at 5 samples per dataset.
 
-#### 3. Custom Starting Checkpoint
-To resume mid-training from a custom pre-trained checkpoint path instead of the default location in `configs/mid_train_200m.yml`:
+To run only one tokenizer profile:
 ```bash
-sbatch run_pipeline.sh --resume-from /path/to/pretrain/checkpoint.pt
+sbatch scripts/run_pipeline.sh --profile superbpe
+sbatch scripts/run_pipeline.sh --profile byte_bpe_gpt2
+```
+
+#### 3. Custom Starting Checkpoint
+To resume mid-training from a custom pre-trained checkpoint path instead of the profile default, select exactly one profile:
+```bash
+sbatch scripts/run_pipeline.sh --profile superbpe --resume-from /path/to/pretrain/checkpoint.pt
 ```
 
 ### Options Reference
 - `--debug`: Use debug configurations and minimal steps.
 - `--full`: Use standard 200M configurations (default).
-- `--resume-from <path>`: Override the pre-trained checkpoint path to load weights from.
+- `--profile <name>`: Run a single profile (`superbpe` or `byte_bpe_gpt2`). Can be passed more than once.
+- `--profiles <names>`: Comma-separated profile list, for example `superbpe,byte_bpe_gpt2`.
+- `--resume-from <path>`: Override the pre-trained checkpoint path for a single selected profile.
 - `--gpus <N>`: Override the number of processes/GPUs to run under torchrun (default: 2 in full, 1 in debug).
 - `--python <path>`: Path to the python interpreter (default: `python3`).
 
@@ -86,5 +96,3 @@ For a starting checkpoint named `<model_name>`, outputs are structured as follow
 - **Mid-training Outputs**: `outputs/<model_name>/mid_training/` (checkpoints, metrics, plots, and `evaluation_results.json`)
 - **SFT Outputs**: `outputs/<model_name>/sft/` (checkpoints, SFT metrics, plots, and `evaluation_results.json`)
 - **Pipeline Console Logs**: `logs/pipeline-run-<ID>.log`
-
-

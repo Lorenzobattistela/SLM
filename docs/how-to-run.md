@@ -4,7 +4,7 @@ This guide is the runbook for the SLM FineWeb-Edu pipeline. The main entry
 point is the unified YAML config:
 
 ```text
-configs/train_200m_fineweb_edu.yml
+pre-train/configs/train_200m_fineweb_edu.yml
 ```
 
 All modern scripts read that file with `--run-config`.
@@ -41,7 +41,7 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_coun
 Run all steps with:
 
 ```bash
-python scripts/run_all.py --run-config configs/train_200m_fineweb_edu.yml
+python pre-train/scripts/run_all.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
 ```
 
 `run_all.py` tokenizes FineWeb-Edu with the pretrained SuperBPE tokenizer, checks the
@@ -50,7 +50,7 @@ generates plots, and prints a text completion from the latest checkpoint. To pre
 launching it from the script, use:
 
 ```bash
-python scripts/run_all.py --run-config configs/train_200m_fineweb_edu.yml --skip-ddp
+python pre-train/scripts/run_all.py --run-config pre-train/configs/train_200m_fineweb_edu.yml --skip-ddp
 ```
 
 ## Independent Steps
@@ -58,12 +58,12 @@ python scripts/run_all.py --run-config configs/train_200m_fineweb_edu.yml --skip
 Run each stage explicitly when debugging or resuming a partial run:
 
 ```bash
-python scripts/tokenize_dataset.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/count_parameters.py --run-config configs/train_200m_fineweb_edu.yml
-torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/evaluate.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/plot_training.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/sample_checkpoint.py --run-config configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
+python pre-train/scripts/tokenize_dataset.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+python scripts/count_parameters.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+torchrun --standalone --nproc_per_node=2 pre-train/scripts/train.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+python benchmarks/scripts/evaluate.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+python scripts/plot_training.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+python scripts/sample_checkpoint.py --run-config pre-train/configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
 ```
 
 ## DDP With 2 GPUs
@@ -71,7 +71,7 @@ python scripts/sample_checkpoint.py --run-config configs/train_200m_fineweb_edu.
 The required two-GPU training command is:
 
 ```bash
-torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
+torchrun --standalone --nproc_per_node=2 pre-train/scripts/train.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
 ```
 
 Important DDP settings:
@@ -87,10 +87,10 @@ Important DDP settings:
 Example with two selected GPUs:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 NCCL_DEBUG=INFO torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
+CUDA_VISIBLE_DEVICES=0,1 NCCL_DEBUG=INFO torchrun --standalone --nproc_per_node=2 pre-train/scripts/train.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
 ```
 
-For local CPU or single-GPU checks, use `configs/train_200m_fineweb_edu_debug.yml`
+For local CPU or single-GPU checks, use `pre-train/configs/train_200m_fineweb_edu_debug.yml`
 and reduce the distributed settings further if needed. The main config is
 intentionally a two-GPU NCCL config.
 
@@ -124,7 +124,7 @@ FineWeb-Edu data is configured in the `dataset` section.
 | `dataset.tokenize_num_workers` | Number of parallel processes used to tokenize dataset shards. Can be overridden with `TOKENIZE_DATASET_WORKERS`. |
 | `dataset.config_name` | Optional Hugging Face dataset configuration name, if a dataset variant needs one. |
 
-`scripts/tokenize_dataset.py` streams FineWeb-Edu, loads the configured
+`pre-train/scripts/tokenize_dataset.py` streams FineWeb-Edu, loads the configured
 tokenizer, assigns documents to validation with a deterministic hash split,
 then writes training and validation tokens until the configured targets are
 reached.
@@ -134,7 +134,7 @@ comparison, run:
 
 ```bash
 python scripts/retokenize_superbpe_to_byte_bpe.py \
-  --run-config configs/train_200m_fineweb_edu.yml \
+  --run-config pre-train/configs/train_200m_fineweb_edu.yml \
   --output-dir data/processed_byte_bpe_gpt2
 ```
 
@@ -194,7 +194,7 @@ Model settings live in the `model` section and define the SLM architecture.
 Check parameter count before a long run:
 
 ```bash
-python scripts/count_parameters.py --run-config configs/train_200m_fineweb_edu.yml
+python scripts/count_parameters.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
 ```
 
 ## Training Hyperparameters
@@ -288,8 +288,8 @@ outputs/llm_200m_fineweb_edu/plots/
 After a complete run, expect these paths:
 
 ```text
-artifacts/tokenizer_superbpe_50k_olmo_p99/tokenizer.json
-artifacts/tokenizer_superbpe_50k_olmo_p99/tokenizer_metadata.json
+pre-train/artifacts/tokenizer_superbpe_50k_olmo_p99/tokenizer.json
+pre-train/artifacts/tokenizer_superbpe_50k_olmo_p99/tokenizer_metadata.json
 data/processed/train_tokens.bin
 data/processed/val_tokens.bin
 data/processed/metadata.json

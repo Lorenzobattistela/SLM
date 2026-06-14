@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import importlib.util
+import multiprocessing as mp
 import sys
 from pathlib import Path
 
+import pytest
+
 from src.data.token_dataset import TokenBinWriter, write_metadata
 
-TOKENIZE_DATASET_PATH = Path(__file__).resolve().parents[1] / "scripts" / "tokenize_dataset.py"
+TOKENIZE_DATASET_PATH = (
+    Path(__file__).resolve().parents[1] / "pre-train" / "scripts" / "tokenize_dataset.py"
+)
 TOKENIZE_DATASET_SPEC = importlib.util.spec_from_file_location(
     "tokenize_dataset",
     TOKENIZE_DATASET_PATH,
@@ -16,6 +21,11 @@ tokenize_dataset = importlib.util.module_from_spec(TOKENIZE_DATASET_SPEC)
 assert TOKENIZE_DATASET_SPEC.loader is not None
 sys.modules[TOKENIZE_DATASET_SPEC.name] = tokenize_dataset
 TOKENIZE_DATASET_SPEC.loader.exec_module(tokenize_dataset)
+
+
+def _requires_fork_process_pool() -> None:
+    if mp.get_start_method() != "fork":
+        pytest.skip("parallel monkeypatch test requires fork-based multiprocessing")
 
 
 class FakeTokenizer:
@@ -127,6 +137,7 @@ def test_existing_tokenization_state_marks_complete_artifacts(tmp_path) -> None:
 
 
 def test_parallel_tokenization_returns_aggregated_stats(monkeypatch, tmp_path) -> None:
+    _requires_fork_process_pool()
     dataset_cfg = _dataset_cfg(tmp_path)
     tokenizer_cfg = _tokenizer_cfg(tmp_path)
     texts = [

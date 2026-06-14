@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import gc
 import logging
 import math
 import time
@@ -13,13 +14,20 @@ import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel
 
-from src.config.loader import resolve_project_path, load_yaml
-from src.finetuning.sft_dataset import SFTBinDataset, prepare_sft_data
+from src.config.loader import load_yaml, resolve_project_path
+from src.data.streaming_mix import source_metadata
+from src.data.token_dataset import token_dtype_for_vocab
 from src.evaluation.evaluator import evaluate_model
+from src.finetuning.sft_dataset import (
+    SFTBinDataset,
+    SFTStreamPreparer,
+    delete_sft_package,
+    sft_package_labels_path,
+    sft_package_tokens_path,
+)
 from src.model import ModelConfig, TransformerLM
 from src.model.attention import configure_attention_optimization
 from src.training.checkpointing import (
-    find_checkpoint,
     load_checkpoint,
     rotate_checkpoints,
     save_checkpoint,
@@ -61,10 +69,10 @@ def load_sft_config(path: str | Path) -> dict[str, Any]:
     return config
 
 
-def _build_datasets(
+def _build_validation_dataset(
     config: dict[str, Any],
     model_cfg: ModelConfig,
-) -> tuple[SFTBinDataset, SFTBinDataset]:
+) -> SFTBinDataset:
     dataset_cfg = config["dataset"]
     processed_dir = resolve_project_path(dataset_cfg["processed_dir"])
 
@@ -85,17 +93,31 @@ def _build_datasets(
         "tokens_dtype": str(dtype),
         "labels_dtype": "int32",
     }
-    return (
-        SFTBinDataset(
-            processed_dir / "train_tokens.bin", processed_dir / "train_labels.bin", **common
-        ),
-        SFTBinDataset(
-            processed_dir / "val_tokens.bin", processed_dir / "val_labels.bin", **common
-        ),
+    return SFTBinDataset(
+        processed_dir / "val_tokens.bin",
+        processed_dir / "val_labels.bin",
+        **common,
     )
 
 
-def _compute_total_steps(training_cfg: dict[str, Any], model_cfg: ModelConfig, world_size: int) -> int:
+def _sft_package_tokens(
+    config: dict[str, Any],
+    model_cfg: ModelConfig,
+    tokens_per_step: int,
+) -> int:
+    dataset_cfg = config["dataset"]
+    configured_tokens = dataset_cfg.get("streaming_package_tokens")
+    if configured_tokens is not None:
+        package_tokens = int(configured_tokens)
+    else:
+        steps_per_package = int(dataset_cfg.get("streaming_steps_per_package", 32))
+        package_tokens = tokens_per_step * max(1, steps_per_package)
+    return max(package_tokens, tokens_per_step, model_cfg.context_length + 1)
+
+
+def _compute_total_steps(
+    training_cfg: dict[str, Any], model_cfg: ModelConfig, world_size: int
+) -> int:
     configured_max_steps = training_cfg.get("max_steps")
     step_limit = int(configured_max_steps) if configured_max_steps is not None else None
     max_tokens = training_cfg.get("max_tokens")
@@ -229,13 +251,20 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
     model_cfg = ModelConfig.from_dict(config["model"])
     micro_batch_size = int(training_cfg["micro_batch_size"])
     grad_accum_steps = int(training_cfg["gradient_accumulation_steps"])
+    tokens_per_step = (
+        micro_batch_size * grad_accum_steps * model_cfg.context_length * state.world_size
+    )
+    effective_batch = micro_batch_size * grad_accum_steps * state.world_size
+    streaming_package_tokens = _sft_package_tokens(config, model_cfg, tokens_per_step)
+    target_train_tokens = int(config["dataset"]["target_train_tokens"])
 
-    # Prepare datasets only on the main process
+    data_preparer: SFTStreamPreparer | None = None
     if state.is_main_process:
-        prepare_sft_data(config)
+        data_preparer = SFTStreamPreparer(config)
+        data_preparer.prepare_validation()
     barrier(state)
 
-    train_dataset, val_dataset = _build_datasets(config, model_cfg)
+    val_dataset = _build_validation_dataset(config, model_cfg)
     model = TransformerLM(model_cfg).to(device)
     attention_info = configure_attention_optimization(
         model,
@@ -289,8 +318,6 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
     metrics_path = output_dir / "logs" / "metrics.jsonl"
     rng = np.random.default_rng(int(config["project"]["seed"]) + state.rank + step)
 
-    tokens_per_step = micro_batch_size * grad_accum_steps * model_cfg.context_length * state.world_size
-    effective_batch = micro_batch_size * grad_accum_steps * state.world_size
     max_tokens = training_cfg.get("max_tokens")
 
     _log_main(
@@ -339,8 +366,16 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
                 "max_tokens": max_tokens,
             },
             "dataset": {
-                "train_tokens": train_dataset.num_tokens,
+                "streaming": True,
+                "target_train_tokens": target_train_tokens,
+                "streaming_package_tokens": streaming_package_tokens,
                 "validation_tokens": val_dataset.num_tokens,
+                "source_signature": (
+                    data_preparer.source_signature if data_preparer is not None else None
+                ),
+                "sources": (
+                    source_metadata(data_preparer.sources) if data_preparer is not None else []
+                ),
             },
         }
         _write_json(output_dir / "logs" / "training_metadata.json", training_metadata)
@@ -351,7 +386,8 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
                 "step": step,
                 "tokens_seen": tokens_seen,
                 "total_steps": total_steps,
-                "train_dataset_tokens": train_dataset.num_tokens,
+                "train_dataset_tokens": target_train_tokens,
+                "streaming_package_tokens": streaming_package_tokens,
                 "validation_dataset_tokens": val_dataset.num_tokens,
                 "effective_batch_size": effective_batch,
                 "tokens_per_step": tokens_per_step,
@@ -361,10 +397,68 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
             },
         )
 
+    train_dtype = token_dtype_for_vocab(int(config["tokenizer"]["vocab_size"]))
+    train_dataset: SFTBinDataset | None = None
+    current_package_index = -1
+    current_package_tokens = 0
+    package_steps = 0
+    package_steps_used = 0
+
+    def close_current_train_package(*, delete_package: bool) -> None:
+        nonlocal train_dataset
+        if train_dataset is None:
+            return
+        train_dataset.close()
+        train_dataset = None
+        gc.collect()
+        barrier(state)
+        if delete_package and state.is_main_process and current_package_index >= 0:
+            delete_sft_package(config, current_package_index)
+        barrier(state)
+
+    def open_next_train_package() -> None:
+        nonlocal current_package_index
+        nonlocal current_package_tokens
+        nonlocal package_steps
+        nonlocal package_steps_used
+        nonlocal train_dataset
+
+        close_current_train_package(delete_package=True)
+        current_package_index += 1
+        if state.is_main_process:
+            if data_preparer is None:
+                raise RuntimeError("Main process is missing the SFT stream preparer.")
+            data_preparer.write_train_package(current_package_index, streaming_package_tokens)
+        barrier(state)
+
+        train_dataset = SFTBinDataset(
+            sft_package_tokens_path(config, current_package_index),
+            sft_package_labels_path(config, current_package_index),
+            block_size=model_cfg.context_length,
+            vocab_size=int(config["tokenizer"]["vocab_size"]),
+            tokens_dtype=train_dtype,
+            labels_dtype="int32",
+        )
+        current_package_tokens = train_dataset.num_tokens
+        package_steps = max(1, math.ceil(current_package_tokens / tokens_per_step))
+        package_steps_used = 0
+        _log_main(
+            state,
+            "Opened streaming SFT package index=%s tokens=%s planned_steps=%s",
+            current_package_index,
+            current_package_tokens,
+            package_steps,
+        )
+
     last_log_time = time.perf_counter()
     last_eval_step: int | None = None
     try:
         while _should_continue(step, tokens_seen, training_cfg):
+            if train_dataset is None or package_steps_used >= package_steps:
+                open_next_train_package()
+            if train_dataset is None:
+                raise RuntimeError("SFT package was not opened.")
+
             model.train()
             optimizer.zero_grad(set_to_none=True)
             accumulated_loss = 0.0
@@ -390,7 +484,9 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
                     accumulated_loss += float(loss.item())
                     (loss / grad_accum_steps).backward()
 
-            if "gradient_clipping" in training_cfg and bool(training_cfg["gradient_clipping"]["enabled"]):
+            if "gradient_clipping" in training_cfg and bool(
+                training_cfg["gradient_clipping"]["enabled"]
+            ):
                 grad_norm_tensor = torch.nn.utils.clip_grad_norm_(
                     unwrap_model(model).parameters(),
                     float(training_cfg["gradient_clipping"]["max_norm"]),
@@ -399,13 +495,13 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
 
             optimizer.step()
             step += 1
+            package_steps_used += 1
             tokens_seen += tokens_per_step
             scheduler.step(step)
             stop_after_step = not _should_continue(step, tokens_seen, training_cfg)
 
-            if (
-                state.is_main_process
-                and (step % int(config["logging"]["log_every_steps"]) == 0 or stop_after_step)
+            if state.is_main_process and (
+                step % int(config["logging"]["log_every_steps"]) == 0 or stop_after_step
             ):
                 elapsed = max(1.0e-9, time.perf_counter() - last_log_time)
                 step_elapsed = max(1.0e-9, time.perf_counter() - step_started)
@@ -428,7 +524,11 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
                     "step_time_seconds": step_elapsed,
                     "tokens_per_second": tokens_per_step / step_elapsed,
                     "samples_per_second": effective_batch / step_elapsed,
-                    "epoch_equivalent": tokens_seen / max(1, train_dataset.num_tokens),
+                    "epoch_equivalent": tokens_seen / max(1, target_train_tokens),
+                    "streaming_package_index": current_package_index,
+                    "streaming_package_tokens": current_package_tokens,
+                    "streaming_package_step": package_steps_used,
+                    "streaming_package_steps": package_steps,
                     "log_window_tokens_per_second": (
                         tokens_per_step * int(config["logging"]["log_every_steps"]) / elapsed
                     ),
@@ -440,9 +540,7 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
                     metrics["gpu_memory_allocated_gb"] = (
                         torch.cuda.memory_allocated(device) / 1024**3
                     )
-                    metrics["gpu_memory_reserved_gb"] = (
-                        torch.cuda.memory_reserved(device) / 1024**3
-                    )
+                    metrics["gpu_memory_reserved_gb"] = torch.cuda.memory_reserved(device) / 1024**3
                     metrics["gpu_memory_max_allocated_gb"] = (
                         torch.cuda.max_memory_allocated(device) / 1024**3
                     )
@@ -495,11 +593,7 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
                     LOGGER.info("Saved checkpoint at step=%s", step)
                 barrier(state)
 
-        if (
-            bool(config["evaluation"].get("enabled", True))
-            and step > 0
-            and last_eval_step != step
-        ):
+        if bool(config["evaluation"].get("enabled", True)) and step > 0 and last_eval_step != step:
             _run_validation(
                 state=state,
                 model=model,
@@ -541,6 +635,7 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
             if bool(config.get("plots", {}).get("enabled", True)):
                 try:
                     from src.plotting import generate_training_plots, load_jsonl_metrics
+
                     plots_output_dir = resolve_project_path(config["plots"]["output_dir"])
                     plot_names = config["plots"].get("generate")
                     metrics = load_jsonl_metrics(metrics_path)
@@ -549,8 +644,12 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
                 except Exception as e:
                     LOGGER.exception("Failed to generate SFT plots: %s", e)
 
+        close_current_train_package(delete_package=True)
         barrier(state)
     finally:
+        if train_dataset is not None:
+            train_dataset.close()
+        val_dataset.close()
         cleanup_distributed(state)
 
 

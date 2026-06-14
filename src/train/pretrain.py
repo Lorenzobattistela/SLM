@@ -12,7 +12,7 @@ def parse_args() -> argparse.Namespace:
         "--run-config",
         type=str,
         required=True,
-        help="Path to a run config under configs/run/",
+        help="Path to a run config under pre-train/configs/run/",
     )
     return parser.parse_args()
 

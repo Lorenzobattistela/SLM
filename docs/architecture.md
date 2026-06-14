@@ -5,8 +5,8 @@ modeling. The two trained 200M experiment configs keep the full project, dataset
 tokenizer, model, training, evaluation, logging, and plotting settings in one
 YAML file:
 
-- `configs/train_200m_fineweb_edu.yml`
-- `configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml`
+- `pre-train/configs/train_200m_fineweb_edu.yml`
+- `pre-train/configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml`
 
 ## Components
 
@@ -33,8 +33,8 @@ device, so it can verify model sizes without allocating the full parameter
 tensors. Run it against each trained 200M config:
 
 ```bash
-python scripts/count_parameters.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/count_parameters.py --run-config configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml
+python scripts/count_parameters.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+python scripts/count_parameters.py --run-config pre-train/configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml
 ```
 
 The counter reports total and trainable parameters, configured target/range,
@@ -64,8 +64,8 @@ These counts were verified with `scripts/count_parameters.py` in this worktree.
 
 | Config | Model source | Tokenizer/vocab | Layers | Width | Heads | KV heads | Head dim | FFN dim | Context | Final parameters | Status |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| `configs/train_200m_fineweb_edu.yml` | inline `model` section | SuperBPE, 50,000 | 12 | 1024 | 16 | 4 | 64 | 3200 | 2048 | 200,647,680 | OK |
-| `configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml` | inline `model` section | GPT-2 byte BPE, 50,257 | 12 | 1024 | 16 | 4 | 64 | 3200 | 2048 | 200,910,848 | OK |
+| `pre-train/configs/train_200m_fineweb_edu.yml` | inline `model` section | SuperBPE, 50,000 | 12 | 1024 | 16 | 4 | 64 | 3200 | 2048 | 200,647,680 | OK |
+| `pre-train/configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml` | inline `model` section | GPT-2 byte BPE, 50,257 | 12 | 1024 | 16 | 4 | 64 | 3200 | 2048 | 200,910,848 | OK |
 
 ## Module Estimates
 
@@ -73,8 +73,8 @@ The current module-level counts are:
 
 | Config | Embedding | Attention | FFN | LM head | Norm |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `configs/train_200m_fineweb_edu.yml` | 51,200,000 | 31,457,280 | 117,964,800 | 0 | 25,600 |
-| `configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml` | 51,463,168 | 31,457,280 | 117,964,800 | 0 | 25,600 |
+| `pre-train/configs/train_200m_fineweb_edu.yml` | 51,200,000 | 31,457,280 | 117,964,800 | 0 | 25,600 |
+| `pre-train/configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml` | 51,463,168 | 31,457,280 | 117,964,800 | 0 | 25,600 |
 
 Run the counter after changing any architecture or tokenizer vocabulary setting.
 `Status: OK` means the instantiated parameter count is inside the configured

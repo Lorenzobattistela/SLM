@@ -2,19 +2,70 @@ from __future__ import annotations
 
 import json
 import logging
-import random
 from array import array
+from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 import torch
 from datasets import load_dataset
 from src.config.loader import resolve_project_path
-from src.tokenizer import load_tokenizer
+from src.data.streaming_mix import (
+    StreamingSource,
+    belongs_to_partition,
+    belongs_to_source_range,
+    iter_permuted_source_names,
+    load_streaming_source,
+    parse_streaming_sources,
+    preload_streaming_sources,
+    source_metadata,
+    source_signature,
+    validate_source_token_budget,
+)
 from src.data.token_dataset import TokenBinWriter, write_metadata
+from src.tokenizer import load_tokenizer
 
 LOGGER = logging.getLogger(__name__)
+_DATASET_NAME = "sft_weighted_streaming_mix"
+
+
+@dataclass(frozen=True)
+class SFTPackage:
+    index: int
+    tokens_path: Path
+    labels_path: Path
+    metadata_path: Path
+    tokens_written: int
+    dtype: str
+
+
+def sft_package_dir(config: dict[str, Any]) -> Path:
+    return resolve_project_path(config["dataset"]["processed_dir"]) / "streaming_train_packages"
+
+
+def sft_package_tokens_path(config: dict[str, Any], package_index: int) -> Path:
+    return sft_package_dir(config) / f"train_package_{package_index:06d}_tokens.bin"
+
+
+def sft_package_labels_path(config: dict[str, Any], package_index: int) -> Path:
+    return sft_package_dir(config) / f"train_package_{package_index:06d}_labels.bin"
+
+
+def sft_package_metadata_path(config: dict[str, Any], package_index: int) -> Path:
+    return sft_package_dir(config) / f"train_package_{package_index:06d}.metadata.json"
+
+
+def delete_sft_package(config: dict[str, Any], package_index: int) -> None:
+    for path in (
+        sft_package_tokens_path(config, package_index),
+        sft_package_labels_path(config, package_index),
+        sft_package_metadata_path(config, package_index),
+    ):
+        if path.exists():
+            path.unlink()
+            LOGGER.info("Deleted processed SFT package: %s", path)
 
 
 class LabelsBinWriter:
@@ -96,6 +147,18 @@ class SFTBinDataset:
                 f"Token file {self.tokens_path} has {self.num_tokens} tokens, which is too small "
                 f"for block_size={self.block_size}."
             )
+
+    def close(self) -> None:
+        for values in (self.tokens, self.labels):
+            mmap = getattr(values, "_mmap", None)
+            if mmap is not None:
+                mmap.close()
+
+    def __enter__(self) -> SFTBinDataset:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.close()
 
     def __len__(self) -> int:
         return self.num_positions
@@ -183,7 +246,7 @@ class SFTBinDataset:
 
 
 def tokenize_sft_conversation(
-    messages: list[dict[str, str]], tokenizer: Any, bos_id: int, eos_id: int
+    messages: list[dict[str, str]], tokenizer: Any, bos_id: int | None, eos_id: int
 ) -> tuple[list[int], list[int]]:
     """Tokenize conversation with loss masking on user/system prompts."""
     role_map = {"user": "User", "assistant": "Assistant", "system": "System"}
@@ -191,9 +254,9 @@ def tokenize_sft_conversation(
     tokens = []
     labels = []
 
-    # Prepend bos_id, masked in targets
-    tokens.append(bos_id)
-    labels.append(-100)
+    if bos_id is not None:
+        tokens.append(bos_id)
+        labels.append(-100)
 
     for i, msg in enumerate(messages):
         role = role_map.get(msg["role"], msg["role"].capitalize())
@@ -230,126 +293,338 @@ def _load_metadata(processed_dir: Path) -> dict[str, Any]:
             return {}
 
 
-def prepare_sft_data(config: dict[str, Any], force: bool = False) -> None:
-    dataset_cfg = config["dataset"]
-    processed_dir = resolve_project_path(dataset_cfg["processed_dir"])
-    metadata_path = processed_dir / "metadata.json"
+def _messages_from_sample(
+    sample: dict[str, Any],
+    source: StreamingSource,
+) -> list[dict[str, str]]:
+    messages = sample.get("messages")
+    if isinstance(messages, list) and messages:
+        normalized: list[dict[str, str]] = []
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role", "")).lower()
+            content = str(message.get("content", "")).strip()
+            if role and content:
+                normalized.append({"role": role, "content": content})
+        return normalized
 
-    # Verify if we can reuse existing files
-    metadata = _load_metadata(processed_dir)
-    target_train_tokens = int(dataset_cfg["target_train_tokens"])
-    validation_ratio = float(dataset_cfg.get("validation_ratio", 0.05))
-    target_validation_tokens = int(target_train_tokens * validation_ratio)
+    if source.format == "gsm8k" or {"question", "answer"}.issubset(sample):
+        question = str(sample.get("question", "")).strip()
+        answer = str(sample.get("answer", "")).strip()
+        if question and answer:
+            return [
+                {"role": "user", "content": question},
+                {"role": "assistant", "content": answer},
+            ]
 
-    train_tokens_path = processed_dir / "train_tokens.bin"
-    train_labels_path = processed_dir / "train_labels.bin"
-    val_tokens_path = processed_dir / "val_tokens.bin"
-    val_labels_path = processed_dir / "val_labels.bin"
+    text = str(sample.get("text", "")).strip()
+    if text:
+        return [{"role": "assistant", "content": text}]
+    return []
 
-    if (
-        not force
-        and metadata_path.exists()
-        and train_tokens_path.exists()
-        and train_labels_path.exists()
-        and val_tokens_path.exists()
-        and val_labels_path.exists()
-    ):
-        if (
-            metadata.get("target_train_tokens") == target_train_tokens
-            and metadata.get("validation_ratio") == validation_ratio
-            and metadata.get("tokenizer_type") == config["tokenizer"]["type"]
+
+def _legacy_sources(dataset_cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    subset = dataset_cfg.get("sft_subset", "all")
+    return [
+        {
+            "name": "sft",
+            "id": dataset_cfg.get("sft_dataset", "HuggingFaceTB/smoltalk"),
+            "config_name": subset,
+            "split": dataset_cfg.get("split", "train"),
+            "target_tokens": int(dataset_cfg["target_train_tokens"]),
+            "format": "chat",
+        }
+    ]
+
+
+class SFTStreamPreparer:
+    """Streams, prompt-masks, and writes only the next SFT package to disk."""
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        self.config = config
+        self.dataset_cfg = config["dataset"]
+        self.seed = int(config["project"].get("seed", 42))
+        self.validation_ratio = float(self.dataset_cfg.get("validation_ratio", 0.05))
+        self.cache_dir = resolve_project_path(self.dataset_cfg.get("cache_dir", "./data/cache"))
+        self.shuffle_buffer_size = int(self.dataset_cfg.get("stream_shuffle_buffer_size", 10_000))
+        self.mixture_window_size = int(self.dataset_cfg.get("source_mixture_window_size", 1_024))
+        self.sources = parse_streaming_sources(
+            self.dataset_cfg,
+            fallback_sources=_legacy_sources(self.dataset_cfg),
+        )
+        validate_source_token_budget(
+            self.sources,
+            target_train_tokens=int(self.dataset_cfg["target_train_tokens"]),
+        )
+        self.source_by_name = {source.name: source for source in self.sources}
+        self.source_signature = source_signature(self.sources)
+        if bool(self.dataset_cfg.get("validate_sources_on_start", True)):
+            self.validate_sources()
+
+        self.tokenizer = load_tokenizer(config["tokenizer"])
+        self.bos_id = self.tokenizer.special_token_ids.get("bos_token")
+        self.eos_id = self.tokenizer.special_token_ids.get("eos_token")
+        if self.eos_id is None:
+            raise ValueError(
+                f"Tokenizer is missing eos_token: {self.tokenizer.special_token_ids}"
+            )
+        if self.bos_id is None:
+            LOGGER.info(
+                "Tokenizer does not expose bos_token; SFT sequences will use eos only."
+            )
+
+        self._train_pairs = self._tokenized_partition("train", self.seed + 101)
+
+    def validate_sources(self) -> None:
+        preload_streaming_sources(
+            self.sources,
+            cache_dir=self.cache_dir,
+            load_dataset_fn=load_dataset,
+        )
+        for index, source in enumerate(self.sources):
+            dataset = load_streaming_source(
+                source,
+                cache_dir=self.cache_dir,
+                seed=self.seed + 17 + index,
+                shuffle_buffer_size=self.shuffle_buffer_size,
+                load_dataset_fn=load_dataset,
+            )
+            sample = next(
+                sample
+                for sample in dataset
+                if isinstance(sample, dict) and belongs_to_source_range(sample, source)
+            )
+            messages = _messages_from_sample(sample, source)
+            if not messages:
+                raise ValueError(
+                    f"SFT source {source.name!r} loaded but did not produce messages."
+                )
+            LOGGER.info(
+                "Validated SFT source=%s dataset=%s config=%s split=%s",
+                source.name,
+                source.dataset_id,
+                source.config_name,
+                source.split,
+            )
+
+    def _source_stream(
+        self,
+        source: StreamingSource,
+        partition: str,
+        seed: int,
+    ) -> Iterator[dict[str, Any]]:
+        epoch = 0
+        while True:
+            emitted = False
+            dataset = load_streaming_source(
+                source,
+                cache_dir=self.cache_dir,
+                seed=seed + epoch,
+                shuffle_buffer_size=self.shuffle_buffer_size,
+                load_dataset_fn=load_dataset,
+            )
+            for sample in dataset:
+                if not isinstance(sample, dict):
+                    continue
+                if not belongs_to_source_range(sample, source):
+                    continue
+                if not belongs_to_partition(
+                    sample,
+                    partition=partition,
+                    validation_ratio=self.validation_ratio,
+                ):
+                    continue
+                emitted = True
+                yield sample
+
+            if not emitted:
+                raise ValueError(
+                    f"No {partition} samples were produced by SFT source {source.name!r}. "
+                    "Adjust dataset.validation_ratio, source sample_range, or source configuration."
+                )
+            epoch += 1
+
+    def _tokenized_partition(
+        self,
+        partition: str,
+        seed: int,
+    ) -> Iterator[tuple[str, list[int], list[int]]]:
+        source_streams = {
+            source.name: self._source_stream(source, partition, seed + 17 * (index + 1))
+            for index, source in enumerate(self.sources)
+        }
+        source_names = iter_permuted_source_names(
+            self.sources,
+            seed=seed,
+            window_size=self.mixture_window_size,
+        )
+        while True:
+            source_name = next(source_names)
+            source = self.source_by_name[source_name]
+            sample = next(source_streams[source_name])
+            messages = _messages_from_sample(sample, source)
+            if not messages:
+                continue
+            tokens, labels = tokenize_sft_conversation(
+                messages,
+                self.tokenizer,
+                self.bos_id,
+                self.eos_id,
+            )
+            if len(tokens) <= 1 or len(tokens) != len(labels):
+                continue
+            yield source.name, tokens[:-1], labels[1:]
+
+    def _write_pairs(
+        self,
+        *,
+        token_label_pairs: Iterator[tuple[str, list[int], list[int]]],
+        tokens_path: Path,
+        labels_path: Path,
+        target_tokens: int,
+    ) -> tuple[int, str, dict[str, dict[str, int]]]:
+        source_stats: dict[str, dict[str, int]] = defaultdict(
+            lambda: {"samples": 0, "tokens": 0}
+        )
+        with (
+            TokenBinWriter(
+                tokens_path,
+                vocab_size=self.tokenizer.vocab_size,
+                target_tokens=target_tokens,
+            ) as tokens_writer,
+            LabelsBinWriter(labels_path, target_tokens=target_tokens) as labels_writer,
         ):
-            LOGGER.info("Reusing existing tokenized SFT datasets at %s", processed_dir)
-            return
+            for source_name, tokens, labels in token_label_pairs:
+                result = tokens_writer.write(tokens)
+                labels_writer.write(labels)
+                if result.written > 0:
+                    source_stats[source_name]["samples"] += 1
+                    source_stats[source_name]["tokens"] += result.written
+                if tokens_writer.complete:
+                    break
 
-    LOGGER.info("Tokenizing SFT dataset with prompt loss masking...")
-    processed_dir.mkdir(parents=True, exist_ok=True)
+            if tokens_writer.tokens_written != labels_writer.tokens_written:
+                raise ValueError(
+                    "SFT token/label package length mismatch: "
+                    f"tokens={tokens_writer.tokens_written}, labels={labels_writer.tokens_written}"
+                )
+            return tokens_writer.tokens_written, tokens_writer.dtype, dict(source_stats)
 
-    tokenizer = load_tokenizer(config["tokenizer"])
-    bos_id = tokenizer.special_token_ids.get("bos_token")
-    eos_id = tokenizer.special_token_ids.get("eos_token")
+    def prepare_validation(self, *, force: bool = False) -> Path:
+        processed_dir = resolve_project_path(self.dataset_cfg["processed_dir"])
+        processed_dir.mkdir(parents=True, exist_ok=True)
+        metadata_path = processed_dir / "metadata.json"
+        val_tokens_path = processed_dir / "val_tokens.bin"
+        val_labels_path = processed_dir / "val_labels.bin"
 
-    if bos_id is None or eos_id is None:
-        raise ValueError(
-            f"Tokenizer is missing bos_token or eos_token: {tokenizer.special_token_ids}"
+        target_train_tokens = int(self.dataset_cfg["target_train_tokens"])
+        target_validation_tokens = int(target_train_tokens * self.validation_ratio)
+        if target_validation_tokens <= 0:
+            raise ValueError("SFT validation requires dataset.validation_ratio > 0.")
+
+        metadata = _load_metadata(processed_dir)
+        if (
+            not force
+            and val_tokens_path.exists()
+            and val_labels_path.exists()
+            and metadata.get("dataset_name") == _DATASET_NAME
+            and metadata.get("source_signature") == self.source_signature
+            and metadata.get("target_validation_tokens") == target_validation_tokens
+            and metadata.get("tokenizer_type") == self.config["tokenizer"]["type"]
+        ):
+            LOGGER.info("Reusing streaming SFT validation data at %s", processed_dir)
+            return val_tokens_path
+
+        LOGGER.info("Streaming SFT validation data to %s", processed_dir)
+        actual_val_tokens, storage_dtype, source_stats = self._write_pairs(
+            token_label_pairs=self._tokenized_partition("validation", self.seed + 307),
+            tokens_path=val_tokens_path,
+            labels_path=val_labels_path,
+            target_tokens=target_validation_tokens,
         )
 
-    # Load SmolTalk SFT dataset
-    sft_dataset_name = dataset_cfg.get("sft_dataset", "HuggingFaceTB/smoltalk")
-    cache_dir = resolve_project_path(dataset_cfg.get("cache_dir", "./data/cache"))
+        metadata = {
+            "dataset_name": _DATASET_NAME,
+            "streaming": True,
+            "source_signature": self.source_signature,
+            "sources": source_metadata(self.sources),
+            "validation_source_stats": source_stats,
+            "tokenizer_type": self.config["tokenizer"]["type"],
+            "tokenizer_dir": str(Path(self.config["tokenizer"]["save_dir"])),
+            "target_train_tokens": target_train_tokens,
+            "target_validation_tokens": target_validation_tokens,
+            "validation_tokens": actual_val_tokens,
+            "validation_ratio": self.validation_ratio,
+            "vocab_size": self.tokenizer.vocab_size,
+            "storage_dtype": storage_dtype,
+            "validation_tokens_path": str(val_tokens_path),
+            "validation_labels_path": str(val_labels_path),
+            "train_package_dir": str(sft_package_dir(self.config)),
+        }
+        write_metadata(metadata_path, metadata)
+        return val_tokens_path
 
-    LOGGER.info("Loading SFT dataset: %s", sft_dataset_name)
-    sft_ds = load_dataset(sft_dataset_name, "all", split="train", cache_dir=str(cache_dir))
+    def write_train_package(self, package_index: int, target_tokens: int) -> SFTPackage:
+        package_dir = sft_package_dir(self.config)
+        package_dir.mkdir(parents=True, exist_ok=True)
+        tokens_path = sft_package_tokens_path(self.config, package_index)
+        labels_path = sft_package_labels_path(self.config, package_index)
+        metadata_path = sft_package_metadata_path(self.config, package_index)
+        for path in (tokens_path, labels_path, metadata_path):
+            if path.exists():
+                path.unlink()
 
-    seed = int(config["project"].get("seed", 42))
-    rng = random.Random(seed)
-    indices = list(range(len(sft_ds)))
-    rng.shuffle(indices)
-    val_size = int(len(sft_ds) * validation_ratio)
-    train_indices = indices[:-val_size] if val_size > 0 else indices
-    val_indices = indices[-val_size:] if val_size > 0 else []
-
-    sft_train = sft_ds.select(train_indices)
-    sft_val = sft_ds.select(val_indices) if val_size > 0 else []
-
-    def process_and_write(dataset_part, tokens_path, labels_path, target_tokens, part_name):
-        tokens_writer = TokenBinWriter(
-            tokens_path, vocab_size=tokenizer.vocab_size, target_tokens=target_tokens
+        LOGGER.info(
+            "Streaming SFT package %s to %s with target_tokens=%s",
+            package_index,
+            package_dir,
+            target_tokens,
         )
-        labels_writer = LabelsBinWriter(labels_path, target_tokens=target_tokens)
+        tokens_written, storage_dtype, source_stats = self._write_pairs(
+            token_label_pairs=self._train_pairs,
+            tokens_path=tokens_path,
+            labels_path=labels_path,
+            target_tokens=int(target_tokens),
+        )
 
-        part_indices = list(range(len(dataset_part)))
-        random.Random(seed + 3).shuffle(part_indices)
+        metadata = {
+            "dataset_name": _DATASET_NAME,
+            "streaming": True,
+            "source_signature": self.source_signature,
+            "sources": source_metadata(self.sources),
+            "source_stats": source_stats,
+            "package_index": int(package_index),
+            "package_tokens": tokens_written,
+            "target_package_tokens": int(target_tokens),
+            "tokenizer_type": self.config["tokenizer"]["type"],
+            "tokenizer_dir": str(Path(self.config["tokenizer"]["save_dir"])),
+            "vocab_size": self.tokenizer.vocab_size,
+            "storage_dtype": storage_dtype,
+            "tokens_path": str(tokens_path),
+            "labels_path": str(labels_path),
+        }
+        write_metadata(metadata_path, metadata)
+        return SFTPackage(
+            index=int(package_index),
+            tokens_path=tokens_path,
+            labels_path=labels_path,
+            metadata_path=metadata_path,
+            tokens_written=tokens_written,
+            dtype=storage_dtype,
+        )
 
-        idx = 0
-        try:
-            with tokens_writer, labels_writer:
-                while not tokens_writer.complete:
-                    if idx >= len(part_indices):
-                        idx = 0
-                        random.Random(seed + idx).shuffle(part_indices)
 
-                    sample = dataset_part[part_indices[idx]]
-                    idx += 1
+def prepare_sft_data(config: dict[str, Any], force: bool = False) -> None:
+    """Prepare reusable validation data and the first streaming SFT train package."""
 
-                    messages = sample["messages"]
-                    tokens, labels = tokenize_sft_conversation(messages, tokenizer, bos_id, eos_id)
-
-                    # Write inputs (tokens[:-1]) and labels[1:] (alignment shift)
-                    tokens_writer.write(tokens[:-1])
-                    labels_writer.write(labels[1:])
-        except Exception as e:
-            LOGGER.exception("Error writing SFT binaries: %s", e)
-            raise
-
-        return tokens_writer.tokens_written, tokens_writer.dtype
-
-    actual_train_tokens, storage_dtype = process_and_write(
-        sft_train, train_tokens_path, train_labels_path, target_train_tokens, "train"
+    preparer = SFTStreamPreparer(config)
+    preparer.prepare_validation(force=force)
+    target_tokens = int(
+        config["dataset"].get(
+            "streaming_package_tokens",
+            config["dataset"].get("target_train_tokens", 0),
+        )
     )
-
-    actual_val_tokens = 0
-    if len(sft_val) > 0 and target_validation_tokens > 0:
-        actual_val_tokens, _ = process_and_write(
-            sft_val, val_tokens_path, val_labels_path, target_validation_tokens, "val"
-        )
-
-    # Write SFT metadata
-    metadata = {
-        "dataset_name": "sft_smoltalk",
-        "tokenizer_type": config["tokenizer"]["type"],
-        "tokenizer_dir": str(Path(config["tokenizer"]["save_dir"])),
-        "train_tokens": actual_train_tokens,
-        "validation_tokens": actual_val_tokens,
-        "target_train_tokens": target_train_tokens,
-        "target_validation_tokens": target_validation_tokens,
-        "vocab_size": tokenizer.vocab_size,
-        "storage_dtype": storage_dtype,
-        "validation_ratio": validation_ratio,
-    }
-    write_metadata(metadata_path, metadata)
-    LOGGER.info(
-        "Finished tokenizing SFT dataset. Train tokens: %s, Val tokens: %s",
-        actual_train_tokens,
-        actual_val_tokens,
-    )
+    if target_tokens > 0:
+        preparer.write_train_package(0, target_tokens)

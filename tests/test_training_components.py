@@ -11,7 +11,7 @@ from src.data.token_dataset import TokenBinWriter, write_metadata
 from src.training.scheduler import WarmupCosineScheduler
 from src.training.trainer import run_training
 
-RUN_ALL_PATH = Path(__file__).resolve().parents[1] / "scripts" / "run_all.py"
+RUN_ALL_PATH = Path(__file__).resolve().parents[1] / "pre-train" / "scripts" / "run_all.py"
 RUN_ALL_SPEC = importlib.util.spec_from_file_location("run_all", RUN_ALL_PATH)
 assert RUN_ALL_SPEC is not None
 run_all = importlib.util.module_from_spec(RUN_ALL_SPEC)
@@ -166,10 +166,7 @@ def test_training_logs_short_run_metrics_and_resumes_checkpoint(tmp_path) -> Non
     run_training(config)
 
     metrics_path = tmp_path / "outputs" / "logs" / "metrics.jsonl"
-    metrics = [
-        json.loads(line)
-        for line in metrics_path.read_text(encoding="utf-8").splitlines()
-    ]
+    metrics = [json.loads(line) for line in metrics_path.read_text(encoding="utf-8").splitlines()]
     train_metrics = [payload for payload in metrics if "train_loss" in payload]
     validation_metrics = [payload for payload in metrics if "perplexity" in payload]
 

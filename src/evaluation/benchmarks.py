@@ -3,16 +3,28 @@ from __future__ import annotations
 import logging
 import math
 import re
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from datasets import load_dataset
-from tqdm import tqdm
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _optional_bos_prefix(tokenizer: Any) -> list[int]:
+    bos_id = tokenizer.special_token_ids.get("bos_token")
+    return [] if bos_id is None else [int(bos_id)]
+
+
+def _eos_id(tokenizer: Any) -> int:
+    eos_id = tokenizer.special_token_ids.get("eos_token")
+    if eos_id is None:
+        eos_id = tokenizer.special_token_ids.get("eot_token")
+    if eos_id is None:
+        raise ValueError(f"Tokenizer is missing eos/eot token: {tokenizer.special_token_ids}")
+    return int(eos_id)
 
 
 def evaluate_perplexity(
@@ -36,8 +48,8 @@ def evaluate_perplexity(
             LOGGER.error("Failed to load perplexity dataset %s: %s", dataset_name, e)
             return 0.0
 
-    bos_id = tokenizer.special_token_ids.get("bos_token")
-    eos_id = tokenizer.special_token_ids.get("eos_token")
+    bos_prefix = _optional_bos_prefix(tokenizer)
+    eos_id = _eos_id(tokenizer)
 
     total_loss_tokens = 0.0
     total_tokens = 0
@@ -49,7 +61,7 @@ def evaluate_perplexity(
             text = sample.get("text", "")
             if not text:
                 continue
-            token_ids = [bos_id] + tokenizer.encode(text) + [eos_id]
+            token_ids = bos_prefix + tokenizer.encode(text) + [eos_id]
 
             block_size = model.config.context_length
             if len(token_ids) > block_size + 1:
@@ -80,10 +92,10 @@ def get_log_likelihood(
     context: str,
     candidate: str,
     device: torch.device,
-    bos_id: int,
+    bos_id: int | None,
 ) -> float:
     """Compute conditional log-likelihood of a candidate answer given the context."""
-    context_tokens = [bos_id] + tokenizer.encode(context)
+    context_tokens = ([] if bos_id is None else [bos_id]) + tokenizer.encode(context)
     candidate_tokens = tokenizer.encode(candidate)
 
     full_tokens = context_tokens + candidate_tokens
@@ -296,8 +308,8 @@ def evaluate_gsm8k(
         LOGGER.error("Failed to load GSM8K: %s", e)
         return 0.0
 
-    bos_id = tokenizer.special_token_ids.get("bos_token")
-    eos_id = tokenizer.special_token_ids.get("eos_token")
+    bos_prefix = _optional_bos_prefix(tokenizer)
+    eos_id = _eos_id(tokenizer)
     correct = 0
     total = 0
 
@@ -317,7 +329,7 @@ def evaluate_gsm8k(
         # Greedy generation of output response
         model.eval()
         prompt_text = f"User: {question}\nAssistant:"
-        prompt_tokens = [bos_id] + tokenizer.encode(prompt_text)
+        prompt_tokens = bos_prefix + tokenizer.encode(prompt_text)
         input_ids = torch.tensor([prompt_tokens], dtype=torch.long, device=device)
 
         generated_ids = []

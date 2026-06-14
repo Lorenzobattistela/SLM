@@ -26,21 +26,21 @@ com Python 3.13+.
 
 ## Configuração Principal
 
-A configuração principal é `configs/train_200m_fineweb_edu.yml`. Os scripts
+A configuração principal é `pre-train/configs/train_200m_fineweb_edu.yml`. Os scripts
 modernos recebem esse arquivo pelo argumento compartilhado `--run-config`:
 
 ```bash
-python scripts/count_parameters.py --run-config configs/train_200m_fineweb_edu.yml
+python scripts/count_parameters.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
 ```
 
-Para checagens pequenas, use `configs/train_200m_fineweb_edu_debug.yml`.
+Para checagens pequenas, use `pre-train/configs/train_200m_fineweb_edu_debug.yml`.
 
 ## Pipeline Completo
 
 Execute o fluxo completo com:
 
 ```bash
-python scripts/run_all.py --run-config configs/train_200m_fineweb_edu.yml
+python pre-train/scripts/run_all.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
 ```
 
 Esse comando tokeniza os dados, verifica parâmetros, lança treino DDP quando
@@ -53,18 +53,18 @@ manual de treino.
 Execute cada etapa separadamente quando quiser controlar ou depurar o fluxo:
 
 ```bash
-python scripts/tokenize_dataset.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/count_parameters.py --run-config configs/train_200m_fineweb_edu.yml
-torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/evaluate.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/plot_training.py --run-config configs/train_200m_fineweb_edu.yml
-python scripts/sample_checkpoint.py --run-config configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
+python pre-train/scripts/tokenize_dataset.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+python scripts/count_parameters.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+torchrun --standalone --nproc_per_node=2 pre-train/scripts/train.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+python benchmarks/scripts/evaluate.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+python scripts/plot_training.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
+python scripts/sample_checkpoint.py --run-config pre-train/configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
 ```
 
 O comando DDP esperado para o treino principal de 2 GPUs é:
 
 ```bash
-torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
+torchrun --standalone --nproc_per_node=2 pre-train/scripts/train.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
 ```
 
 ## Comparação com GPT-2 Byte-Level BPE
@@ -74,14 +74,14 @@ byte-level BPE:
 
 ```bash
 python scripts/retokenize_superbpe_to_byte_bpe.py \
-  --run-config configs/train_200m_fineweb_edu.yml \
+  --run-config pre-train/configs/train_200m_fineweb_edu.yml \
   --output-dir data/processed_byte_bpe_gpt2
 ```
 
 Treine usando a configuração correspondente:
 
 ```bash
-torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml
+torchrun --standalone --nproc_per_node=2 pre-train/scripts/train.py --run-config pre-train/configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml
 ```
 
 O GPT-2 byte-level BPE usa `50257` IDs, então a configuração byte-BPE mantém
@@ -110,10 +110,10 @@ outputs/llm_200m_fineweb_edu/plots/
 Gere ou regenere os plots com:
 
 ```bash
-python scripts/plot_training.py --run-config configs/train_200m_fineweb_edu.yml
+python scripts/plot_training.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
 ```
 
-O notebook [notebooks/processed_metadata_training_plots.ipynb](../notebooks/processed_metadata_training_plots.ipynb)
+O notebook [docs/notebooks/processed_metadata_training_plots.ipynb](notebooks/processed_metadata_training_plots.ipynb)
 usa as mesmas especificações do script para visualizar os gráficos inline.
 
 ## Geração de Texto
@@ -121,7 +121,7 @@ usa as mesmas especificações do script para visualizar os gráficos inline.
 Gere uma conclusão qualitativa a partir de um checkpoint treinado:
 
 ```bash
-python scripts/sample_checkpoint.py --run-config configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
+python scripts/sample_checkpoint.py --run-config pre-train/configs/train_200m_fineweb_edu.yml --checkpoint checkpoints/llm_200m_fineweb_edu/latest.pt --prompt "Scientific progress depends on"
 ```
 
 ## App Streamlit

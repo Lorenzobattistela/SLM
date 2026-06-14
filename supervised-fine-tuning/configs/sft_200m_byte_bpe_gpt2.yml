@@ -1,0 +1,158 @@
+project:
+  name: "llm_200m_sft_byte_bpe_gpt2"
+  seed: 42
+  output_dir: "outputs/llm_200m_sft_byte_bpe_gpt2"
+  docs_dir: "docs"
+
+dataset:
+  target_train_tokens: 100000000
+  validation_ratio: 0.05
+  streaming_package_tokens: 8388608 # 32 optimizer steps with the default 2-GPU batch
+  stream_shuffle_buffer_size: 10000
+  source_mixture_window_size: 1024
+  validate_sources_on_start: true
+  cache_dir: "./data/cache"
+  processed_dir: "outputs/llm_200m_sft_byte_bpe_gpt2/processed"
+  tokenize_num_workers: 4
+  sources:
+    - name: "smoltalk2_systemchats_30k"
+      id: "HuggingFaceTB/smoltalk2"
+      config_name: "SFT"
+      split: "smoltalk_smollm3_systemchats_30k_no_think"
+      target_tokens: 8000000
+      format: "chat"
+    - name: "smoltalk2_tulu_personas_if"
+      id: "HuggingFaceTB/smoltalk2"
+      config_name: "SFT"
+      split: "tulu_3_sft_personas_instruction_following_no_think"
+      target_tokens: 13830000
+      format: "chat"
+    - name: "smoltalk2_smol_rewrite"
+      id: "HuggingFaceTB/smoltalk2"
+      config_name: "SFT"
+      split: "smoltalk_smollm3_smol_rewrite_no_think"
+      target_tokens: 20340000
+      format: "chat"
+    - name: "smoltalk2_explore_instruct_rewriting"
+      id: "HuggingFaceTB/smoltalk2"
+      config_name: "SFT"
+      split: "smoltalk_smollm3_explore_instruct_rewriting_no_think"
+      target_tokens: 4630000
+      format: "chat"
+    - name: "smoltalk2_everyday_conversations"
+      id: "HuggingFaceTB/smoltalk2"
+      config_name: "SFT"
+      split: "smoltalk_smollm3_everyday_conversations_no_think"
+      target_tokens: 630000
+      format: "chat"
+    - name: "smoltalk2_multilingual_8languages_lang_5"
+      id: "HuggingFaceTB/smoltalk2"
+      config_name: "SFT"
+      split: "smoltalk_multilingual_8languages_lang_5_no_think"
+      target_tokens: 12500000
+      format: "chat"
+    - name: "smoltalk2_mixture_of_thoughts_science_holdout"
+      id: "HuggingFaceTB/smoltalk2"
+      config_name: "SFT"
+      split: "Mixture_of_Thoughts_science_no_think"
+      target_tokens: 7500000
+      format: "chat"
+      sample_range: [0.8, 1.0]
+      sample_range_key: "smoltalk2-mixture-science-no-think"
+    - name: "smoltalk1_smol_constraints"
+      id: "HuggingFaceTB/smoltalk"
+      config_name: "smol-constraints"
+      split: "train"
+      target_tokens: 10000000
+      format: "chat"
+    - name: "smoltalk1_smol_rewrite"
+      id: "HuggingFaceTB/smoltalk"
+      config_name: "smol-rewrite"
+      split: "train"
+      target_tokens: 8510000
+      format: "chat"
+    - name: "gsm8k_train_b"
+      id: "openai/gsm8k"
+      config_name: "main"
+      split: "train"
+      target_tokens: 14060000
+      format: "gsm8k"
+      sample_range: [0.5162, 1.0]
+      sample_range_key: "gsm8k-train"
+
+tokenizer:
+  type: "byte_bpe"
+  name: "gpt2"
+  vocab_size: 50257
+  save_dir: "pre-train/artifacts/tokenizer_byte_bpe_gpt2"
+  append_eos: true
+
+model:
+  architecture: "decoder_only_transformer"
+  positional_encoding: "rope"
+  attention: "gqa"
+  flash_attention: true
+  flash_attention_fallback: true
+  activation: "swiglu"
+  normalization: "rmsnorm"
+  vocab_size: 50257
+  max_seq_len: 2048
+  n_layers: 12
+  d_model: 1024
+  num_attention_heads: 16
+  num_key_value_heads: 4
+  ffn_multiplier: 3.125
+  multiple_of: 64
+  norm_eps: 1.0e-5
+  rope_theta: 10000.0
+  dropout: 0.0
+  tie_embeddings: true
+
+training:
+  distributed:
+    enabled: true
+    backend: "nccl"
+    strategy: "ddp"
+    num_gpus: 2
+
+  precision: "bf16"
+  compile_model: false
+
+  micro_batch_size: 4
+  gradient_accumulation_steps: 16
+  max_steps: null
+  max_tokens: 100000000
+
+  optimizer:
+    name: "adamw"
+    learning_rate: 2.0e-5
+    betas: [0.9, 0.95]
+    eps: 1.0e-8
+    weight_decay: 0.1
+
+  scheduler:
+    name: "cosine"
+    warmup_steps: 200
+    min_lr: 2.0e-6
+
+  gradient_clipping:
+    enabled: true
+    max_norm: 1.0
+
+  checkpointing:
+    resume_from: "outputs/llm_200m_mid_training_byte_bpe_gpt2/checkpoints/latest.pt"
+    save_dir: "outputs/llm_200m_sft_byte_bpe_gpt2/checkpoints"
+    save_every_steps: 500
+    keep_last_n: 3
+
+evaluation:
+  eval_every_steps: 250
+  eval_steps: 50
+
+logging:
+  log_every_steps: 10
+
+plots:
+  enabled: true
+  output_dir: "outputs/llm_200m_sft_byte_bpe_gpt2/plots"
+  keep_existing_plots: true

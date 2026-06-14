@@ -14,9 +14,23 @@ tokenizadores de vocabulário na faixa de 50K:
   usado para retokenizar o corpus SuperBPE e comparar o impacto da tokenização.
 
 O modelo usa RoPE, Grouped-Query Attention, Flash Attention quando disponível,
-SwiGLU, RMSNorm e cabeça de linguagem com embeddings compartilháveis. As
-configs principais ficam em `configs/`, os scripts de execução em `scripts/`,
-os componentes Python em `src/` e as análises exploratórias em `notebooks/`.
+SwiGLU, RMSNorm e cabeça de linguagem com embeddings compartilháveis. A raiz
+agora funciona como um índice do projeto: cada etapa principal tem sua própria
+pasta com `configs/` e `scripts/`, enquanto `scripts/` guarda utilitários
+transversais.
+
+## Estrutura
+
+- `pre-train/`: pré-treinamento FineWeb-Edu, configs de dados/modelo/run,
+  tokenização e scripts do SuperBPE.
+- `mid-training/`: continuação do treino em SmolTalk + GSM8K.
+- `supervised-fine-tuning/`: SFT em dados conversacionais.
+- `benchmarks/`: configs e scripts de avaliação posterior.
+- `apps/`: interfaces locais, como o chatbot Streamlit.
+- `scripts/`: utilitários compartilhados, plots, amostragem e pipelines.
+- `docs/`: runbooks, tarefas históricas, notebooks e imagens de resultados.
+- `tests/`: testes automatizados.
+- `src/`: pacote Python compartilhado pelas etapas.
 
 ## Documentação
 
@@ -50,7 +64,7 @@ os componentes Python em `src/` e as análises exploratórias em `notebooks/`.
 
 - [docs/results.md](docs/results.md)
   Resume os resultados finais de validação dos modelos SuperBPE e GPT-2
-  byte-level BPE, com os gráficos salvos em `plot_images/`.
+  byte-level BPE, com os gráficos salvos em `docs/assets/plot_images/`.
 
 - [docs/streamlit.md](docs/streamlit.md)
   Documenta a interface Streamlit para amostrar checkpoints locais, incluindo
@@ -70,9 +84,9 @@ os componentes Python em `src/` e as análises exploratórias em `notebooks/`.
 
 ## Notebooks
 
-- [notebooks/tokenizer_eval.ipynb](notebooks/tokenizer_eval.ipynb): compara
+- [docs/notebooks/tokenizer_eval.ipynb](docs/notebooks/tokenizer_eval.ipynb): compara
   propriedades dos tokenizadores em amostras do FineWeb-Edu.
-- [notebooks/processed_metadata_training_plots.ipynb](notebooks/processed_metadata_training_plots.ipynb):
+- [docs/notebooks/processed_metadata_training_plots.ipynb](docs/notebooks/processed_metadata_training_plots.ipynb):
   lê `metadata.json` de diretórios processados e reproduz inline os mesmos
   plots de treino definidos em `src/plotting/training_plots.py`.
 
@@ -80,11 +94,11 @@ os componentes Python em `src/` e as análises exploratórias em `notebooks/`.
 
 ### GPT-2 byte-level BPE
 
-![Loss de validação do GPT-2 byte-level BPE](plot_images/bbpe_val_loss.png)
+![Loss de validação do GPT-2 byte-level BPE](docs/assets/plot_images/bbpe_val_loss.png)
 
 ### SuperBPE
 
-![Loss de validação do SuperBPE](plot_images/superbpe_val_loss.png)
+![Loss de validação do SuperBPE](docs/assets/plot_images/superbpe_val_loss.png)
 
 ## Artefatos
 

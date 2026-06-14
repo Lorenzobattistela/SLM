@@ -1,11 +1,11 @@
 # Training
 
-Training is implemented by `scripts/train.py` and `src/training/`. The main run uses AdamW, bf16 precision when supported, gradient accumulation, gradient clipping, warmup, cosine learning-rate decay, checkpointing, and JSONL metrics logging.
+Training is implemented by `pre-train/scripts/train.py` and `src/training/`. The main run uses AdamW, bf16 precision when supported, gradient accumulation, gradient clipping, warmup, cosine learning-rate decay, checkpointing, and JSONL metrics logging.
 
 Run the configured 2-GPU job with:
 
 ```bash
-torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
+torchrun --standalone --nproc_per_node=2 pre-train/scripts/train.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
 ```
 
 ## Behavior
