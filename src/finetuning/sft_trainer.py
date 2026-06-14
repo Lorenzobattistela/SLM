@@ -23,6 +23,7 @@ from src.finetuning.sft_dataset import (
     SFTStreamPreparer,
     delete_sft_package,
     sft_package_labels_path,
+    sft_package_metadata_path,
     sft_package_tokens_path,
 )
 from src.model import ModelConfig, TransformerLM
@@ -38,6 +39,7 @@ from src.training.ddp import (
     barrier,
     cleanup_distributed,
     init_distributed,
+    run_on_main_process_first,
     select_training_device,
 )
 from src.training.metrics import append_metrics, perplexity_from_loss
@@ -259,10 +261,26 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
     target_train_tokens = int(config["dataset"]["target_train_tokens"])
 
     data_preparer: SFTStreamPreparer | None = None
+    processed_dir = resolve_project_path(config["dataset"]["processed_dir"])
     if state.is_main_process:
         data_preparer = SFTStreamPreparer(config)
+
+    def prepare_validation_data() -> None:
+        if data_preparer is None:
+            raise RuntimeError("Main process is missing the SFT stream preparer.")
         data_preparer.prepare_validation()
-    barrier(state)
+
+    run_on_main_process_first(
+        state,
+        action=prepare_validation_data,
+        status_path=processed_dir / ".sft_validation.status.json",
+        ready_paths=[
+            processed_dir / "val_tokens.bin",
+            processed_dir / "val_labels.bin",
+            processed_dir / "metadata.json",
+        ],
+        description="Prepare SFT validation data",
+    )
 
     val_dataset = _build_validation_dataset(config, model_cfg)
     model = TransformerLM(model_cfg).to(device)
@@ -425,15 +443,27 @@ def _run_sft_training(config: dict[str, Any], state: DistributedState) -> None:
 
         close_current_train_package(delete_package=True)
         current_package_index += 1
-        if state.is_main_process:
+
+        package_tokens_path = sft_package_tokens_path(config, current_package_index)
+        package_labels_path = sft_package_labels_path(config, current_package_index)
+        package_metadata_path = sft_package_metadata_path(config, current_package_index)
+
+        def write_streaming_package() -> None:
             if data_preparer is None:
                 raise RuntimeError("Main process is missing the SFT stream preparer.")
             data_preparer.write_train_package(current_package_index, streaming_package_tokens)
-        barrier(state)
+
+        run_on_main_process_first(
+            state,
+            action=write_streaming_package,
+            status_path=package_metadata_path.with_suffix(".status.json"),
+            ready_paths=[package_tokens_path, package_labels_path, package_metadata_path],
+            description=f"Prepare SFT package {current_package_index}",
+        )
 
         train_dataset = SFTBinDataset(
-            sft_package_tokens_path(config, current_package_index),
-            sft_package_labels_path(config, current_package_index),
+            package_tokens_path,
+            package_labels_path,
             block_size=model_cfg.context_length,
             vocab_size=int(config["tokenizer"]["vocab_size"]),
             tokens_dtype=train_dtype,

@@ -34,6 +34,7 @@ from src.config.loader import load_yaml, resolve_project_path
 from src.data.mid_train_dataset import (
     MidTrainStreamPreparer,
     delete_mid_train_package,
+    mid_train_package_metadata_path,
     mid_train_package_path,
 )
 from src.data.streaming_mix import source_metadata
@@ -52,6 +53,7 @@ from src.training.ddp import (
     barrier,
     cleanup_distributed,
     init_distributed,
+    run_on_main_process_first,
     select_training_device,
 )
 from src.training.metrics import append_metrics, perplexity_from_loss
@@ -282,10 +284,22 @@ def _run_mid_training(config: dict[str, Any], state: DistributedState) -> None:
     target_train_tokens = int(config["dataset"]["target_train_tokens"])
 
     data_preparer: MidTrainStreamPreparer | None = None
+    processed_dir = resolve_project_path(config["dataset"]["processed_dir"])
     if state.is_main_process:
         data_preparer = MidTrainStreamPreparer(config)
+
+    def prepare_validation_data() -> None:
+        if data_preparer is None:
+            raise RuntimeError("Main process is missing the mid-training stream preparer.")
         data_preparer.prepare_validation()
-    barrier(state)
+
+    run_on_main_process_first(
+        state,
+        action=prepare_validation_data,
+        status_path=processed_dir / ".mid_train_validation.status.json",
+        ready_paths=[processed_dir / "val_tokens.bin", processed_dir / "metadata.json"],
+        description="Prepare mid-training validation data",
+    )
 
     val_dataset = _build_validation_dataset(config, model_cfg)
     model = TransformerLM(model_cfg).to(device)
@@ -448,14 +462,25 @@ def _run_mid_training(config: dict[str, Any], state: DistributedState) -> None:
 
         close_current_train_package(delete_package=True)
         current_package_index += 1
-        if state.is_main_process:
+
+        package_path = mid_train_package_path(config, current_package_index)
+        package_metadata_path = mid_train_package_metadata_path(config, current_package_index)
+
+        def write_streaming_package() -> None:
             if data_preparer is None:
                 raise RuntimeError("Main process is missing the mid-training stream preparer.")
             data_preparer.write_train_package(current_package_index, streaming_package_tokens)
-        barrier(state)
+
+        run_on_main_process_first(
+            state,
+            action=write_streaming_package,
+            status_path=package_path.with_suffix(".status.json"),
+            ready_paths=[package_path, package_metadata_path],
+            description=f"Prepare mid-training package {current_package_index}",
+        )
 
         train_dataset = TokenBinDataset(
-            mid_train_package_path(config, current_package_index),
+            package_path,
             block_size=model_cfg.context_length,
             vocab_size=int(config["tokenizer"]["vocab_size"]),
             dtype=train_dtype,

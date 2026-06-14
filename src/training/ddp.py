@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import logging
 import os
+import json
+import time
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable, Sequence
 
 import torch
 import torch.distributed as dist
@@ -91,7 +94,109 @@ def select_training_device(state: DistributedState) -> torch.device:
 
 def barrier(state: DistributedState) -> None:
     if state.enabled and dist.is_initialized():
-        dist.barrier()
+        if state.backend == "nccl":
+            dist.barrier(device_ids=[state.local_rank])
+        else:
+            dist.barrier()
+
+
+def _write_status(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+    with tmp_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=True, indent=2, sort_keys=True)
+        handle.write("\n")
+    tmp_path.replace(path)
+
+
+def _read_status(path: Path) -> dict[str, Any] | None:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    if isinstance(payload, dict):
+        return payload
+    return None
+
+
+def _wait_for_main_status(
+    *,
+    status_path: Path,
+    ready_paths: Sequence[Path],
+    description: str,
+    poll_seconds: float,
+) -> None:
+    while True:
+        payload = _read_status(status_path)
+        if payload is not None:
+            state = payload.get("state")
+            if state == "failed":
+                error_type = payload.get("error_type", "Exception")
+                message = payload.get("message", "")
+                raise RuntimeError(
+                    f"{description} failed on the main process: {error_type}: {message}"
+                )
+            if state == "ready" and all(path.exists() for path in ready_paths):
+                return
+        time.sleep(poll_seconds)
+
+
+def run_on_main_process_first(
+    state: DistributedState,
+    *,
+    action: Callable[[], Any],
+    status_path: Path,
+    ready_paths: Sequence[Path],
+    description: str,
+    poll_seconds: float = 5.0,
+) -> Any | None:
+    """Run long file-producing work on rank 0 while other ranks poll the filesystem."""
+    if not state.enabled:
+        if state.is_main_process:
+            return action()
+        return None
+
+    status_path = Path(status_path)
+    ready_paths = tuple(Path(path) for path in ready_paths)
+
+    barrier(state)
+    if state.is_main_process:
+        _write_status(status_path, {"state": "started", "description": description})
+    barrier(state)
+
+    result: Any | None = None
+    if state.is_main_process:
+        try:
+            result = action()
+            missing_paths = [str(path) for path in ready_paths if not path.exists()]
+            if missing_paths:
+                raise RuntimeError(
+                    f"{description} did not produce expected file(s): "
+                    + ", ".join(missing_paths)
+                )
+        except Exception as exc:
+            _write_status(
+                status_path,
+                {
+                    "state": "failed",
+                    "description": description,
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                },
+            )
+            raise
+        _write_status(status_path, {"state": "ready", "description": description})
+    else:
+        _wait_for_main_status(
+            status_path=status_path,
+            ready_paths=ready_paths,
+            description=description,
+            poll_seconds=poll_seconds,
+        )
+
+    barrier(state)
+    return result
 
 
 def cleanup_distributed(state: DistributedState) -> None:
