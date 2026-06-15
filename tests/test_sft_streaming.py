@@ -23,6 +23,18 @@ class FakeTokenizer:
         return [(ord(char) % 200) + 3 for char in text]
 
 
+class FailsOnceIterable:
+    def __init__(self, samples: list[dict[str, Any]]) -> None:
+        self.samples = samples
+        self.failed = False
+
+    def __iter__(self):
+        if not self.failed:
+            self.failed = True
+            raise RuntimeError("408 Client Error: Request Time-out for url")
+        yield from self.samples
+
+
 def _config(tmp_path: Path, *, validation_ratio: float = 0.0) -> dict[str, Any]:
     return {
         "project": {"seed": 123},
@@ -114,6 +126,34 @@ def test_sft_validation_is_streamed(monkeypatch, tmp_path) -> None:
     assert (val_path.parent / "val_labels.bin").exists()
     assert calls
     assert all(call["kwargs"]["streaming"] is True for call in calls)
+
+
+def test_sft_source_validation_retries_transient_stream_error(monkeypatch, tmp_path) -> None:
+    calls: list[dict[str, Any]] = []
+    samples = [
+        {
+            "messages": [
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "world"},
+            ]
+        }
+    ]
+
+    def fake_load_dataset(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        if len(calls) == 2:
+            return FailsOnceIterable(samples)
+        return list(samples)
+
+    monkeypatch.setattr(sft_dataset, "load_dataset", fake_load_dataset)
+    monkeypatch.setattr(sft_dataset, "load_tokenizer", lambda _: FakeTokenizer())
+
+    config = _config(tmp_path, validation_ratio=0.0)
+    config["dataset"]["stream_error_retry_backoff_seconds"] = 0
+
+    SFTStreamPreparer(config)
+
+    assert len(calls) >= 3
 
 
 def test_tokenize_sft_conversation_supports_missing_bos() -> None:

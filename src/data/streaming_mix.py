@@ -5,12 +5,23 @@ import json
 import logging
 import math
 import random
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 
 LOGGER = logging.getLogger(__name__)
 _HASH_DENOMINATOR = 2**64
+_TRANSIENT_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+_TRANSIENT_ERROR_MARKERS = (
+    "request time-out",
+    "request timeout",
+    "read timed out",
+    "connect timeout",
+    "connection aborted",
+    "connection reset",
+    "temporarily unavailable",
+)
 
 
 @dataclass(frozen=True)
@@ -171,11 +182,159 @@ def load_streaming_source(
     return dataset
 
 
+def stream_retry_options(dataset_cfg: dict[str, Any]) -> tuple[int, float]:
+    retries = max(0, int(dataset_cfg.get("stream_error_retries", 5)))
+    backoff_seconds = max(0.0, float(dataset_cfg.get("stream_error_retry_backoff_seconds", 10.0)))
+    return retries, backoff_seconds
+
+
+def _iter_exception_chain(exc: BaseException) -> Iterator[BaseException]:
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _exception_status_code(exc: BaseException) -> int | None:
+    for current in _iter_exception_chain(exc):
+        response = getattr(current, "response", None)
+        status_code = getattr(response, "status_code", None)
+        if isinstance(status_code, int):
+            return status_code
+        if isinstance(getattr(current, "status_code", None), int):
+            return int(getattr(current, "status_code"))
+    return None
+
+
+def is_transient_stream_error(exc: BaseException) -> bool:
+    status_code = _exception_status_code(exc)
+    if status_code in _TRANSIENT_HTTP_STATUS_CODES:
+        return True
+
+    for current in _iter_exception_chain(exc):
+        class_name = type(current).__name__.lower()
+        message = str(current).lower()
+        if "timeout" in class_name or "connectionerror" in class_name:
+            return True
+        if any(marker in message for marker in _TRANSIENT_ERROR_MARKERS):
+            return True
+        has_transient_status = any(
+            f"{code} " in message or f": {code}" in message
+            for code in _TRANSIENT_HTTP_STATUS_CODES
+        )
+        if (
+            has_transient_status
+            and ("client error" in message or "server error" in message or "http" in message)
+        ):
+            return True
+    return False
+
+
+def _retry_delay(failure_count: int, retry_backoff_seconds: float) -> float:
+    return retry_backoff_seconds * (2 ** (failure_count - 1))
+
+
+def _log_transient_retry(
+    *,
+    operation: str,
+    detail: str,
+    failure_count: int,
+    max_retries: int,
+    delay: float,
+    exc: BaseException,
+) -> None:
+    LOGGER.warning(
+        "Transient error while %s %s; retry %s/%s in %.1fs: %s",
+        operation,
+        detail,
+        failure_count,
+        max_retries,
+        delay,
+        exc,
+    )
+
+
+def _call_with_transient_retries(
+    action: Callable[[], Any],
+    *,
+    max_retries: int,
+    retry_backoff_seconds: float,
+    operation: str,
+    detail: str,
+) -> Any:
+    failures = 0
+    while True:
+        try:
+            return action()
+        except Exception as exc:
+            if failures >= max_retries or not is_transient_stream_error(exc):
+                raise
+            failures += 1
+            delay = _retry_delay(failures, retry_backoff_seconds)
+            _log_transient_retry(
+                operation=operation,
+                detail=detail,
+                failure_count=failures,
+                max_retries=max_retries,
+                delay=delay,
+                exc=exc,
+            )
+            if delay > 0:
+                time.sleep(delay)
+
+
+def iter_streaming_source_with_retries(
+    source: StreamingSource,
+    *,
+    cache_dir: Path,
+    seed: int,
+    shuffle_buffer_size: int,
+    load_dataset_fn: Callable[..., Any],
+    max_retries: int,
+    retry_backoff_seconds: float,
+    operation: str,
+) -> Iterator[Any]:
+    failures = 0
+    while True:
+        try:
+            dataset = load_streaming_source(
+                source,
+                cache_dir=cache_dir,
+                seed=seed,
+                shuffle_buffer_size=shuffle_buffer_size,
+                load_dataset_fn=load_dataset_fn,
+            )
+            yield from dataset
+            return
+        except Exception as exc:
+            if failures >= max_retries or not is_transient_stream_error(exc):
+                raise
+            failures += 1
+            delay = _retry_delay(failures, retry_backoff_seconds)
+            _log_transient_retry(
+                operation=operation,
+                detail=(
+                    f"source={source.name} dataset={source.dataset_id} "
+                    f"config={source.config_name} split={source.split}"
+                ),
+                failure_count=failures,
+                max_retries=max_retries,
+                delay=delay,
+                exc=exc,
+            )
+            if delay > 0:
+                time.sleep(delay)
+
+
 def preload_streaming_sources(
     sources: list[StreamingSource],
     *,
     cache_dir: Path,
     load_dataset_fn: Callable[..., Any],
+    max_retries: int = 0,
+    retry_backoff_seconds: float = 0.0,
 ) -> None:
     groups: dict[tuple[str, str | None], list[StreamingSource]] = {}
     for source in sources:
@@ -195,11 +354,21 @@ def preload_streaming_sources(
             config_name,
             split_arg,
         )
-        try:
+        detail = f"dataset={dataset_id} config={config_name} split={split_arg}"
+
+        def load_with_kwargs(load_kwargs: dict[str, Any]) -> Any:
             if config_name is None:
-                load_dataset_fn(dataset_id, **kwargs)
-            else:
-                load_dataset_fn(dataset_id, config_name, **kwargs)
+                return load_dataset_fn(dataset_id, **load_kwargs)
+            return load_dataset_fn(dataset_id, config_name, **load_kwargs)
+
+        try:
+            _call_with_transient_retries(
+                lambda: load_with_kwargs(kwargs),
+                max_retries=max_retries,
+                retry_backoff_seconds=retry_backoff_seconds,
+                operation="preloading streaming dataset",
+                detail=detail,
+            )
         except TypeError as exc:
             if not isinstance(split_arg, list) or "unhashable type: 'list'" not in str(exc):
                 raise
@@ -211,10 +380,13 @@ def preload_streaming_sources(
             for split in split_arg:
                 split_kwargs = dict(kwargs)
                 split_kwargs["split"] = split
-                if config_name is None:
-                    load_dataset_fn(dataset_id, **split_kwargs)
-                else:
-                    load_dataset_fn(dataset_id, config_name, **split_kwargs)
+                _call_with_transient_retries(
+                    lambda split_kwargs=split_kwargs: load_with_kwargs(split_kwargs),
+                    max_retries=max_retries,
+                    retry_backoff_seconds=retry_backoff_seconds,
+                    operation="preloading streaming dataset",
+                    detail=f"dataset={dataset_id} config={config_name} split={split}",
+                )
 
 
 def _sample_key(sample: dict[str, Any]) -> str:

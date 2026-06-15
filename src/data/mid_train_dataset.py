@@ -14,12 +14,13 @@ from src.data.streaming_mix import (
     StreamingSource,
     belongs_to_partition,
     belongs_to_source_range,
+    iter_streaming_source_with_retries,
     iter_permuted_source_names,
-    load_streaming_source,
     parse_streaming_sources,
     preload_streaming_sources,
     source_metadata,
     source_signature,
+    stream_retry_options,
     validate_source_token_budget,
 )
 from src.data.token_dataset import TokenBinWriter, write_metadata
@@ -150,6 +151,9 @@ class MidTrainStreamPreparer:
         self.cache_dir = resolve_project_path(self.dataset_cfg.get("cache_dir", "./data/cache"))
         self.shuffle_buffer_size = int(self.dataset_cfg.get("stream_shuffle_buffer_size", 10_000))
         self.mixture_window_size = int(self.dataset_cfg.get("source_mixture_window_size", 1_024))
+        self.stream_error_retries, self.stream_error_retry_backoff_seconds = stream_retry_options(
+            self.dataset_cfg
+        )
         self.sources = parse_streaming_sources(
             self.dataset_cfg,
             fallback_sources=_legacy_sources(self.dataset_cfg),
@@ -182,14 +186,19 @@ class MidTrainStreamPreparer:
             self.sources,
             cache_dir=self.cache_dir,
             load_dataset_fn=load_dataset,
+            max_retries=self.stream_error_retries,
+            retry_backoff_seconds=self.stream_error_retry_backoff_seconds,
         )
         for index, source in enumerate(self.sources):
-            dataset = load_streaming_source(
+            dataset = iter_streaming_source_with_retries(
                 source,
                 cache_dir=self.cache_dir,
                 seed=self.seed + 17 + index,
                 shuffle_buffer_size=self.shuffle_buffer_size,
                 load_dataset_fn=load_dataset,
+                max_retries=self.stream_error_retries,
+                retry_backoff_seconds=self.stream_error_retry_backoff_seconds,
+                operation="validating mid-training stream",
             )
             sample = next(
                 sample
@@ -219,12 +228,15 @@ class MidTrainStreamPreparer:
         epoch = 0
         while True:
             emitted = False
-            dataset = load_streaming_source(
+            dataset = iter_streaming_source_with_retries(
                 source,
                 cache_dir=self.cache_dir,
                 seed=seed + epoch,
                 shuffle_buffer_size=self.shuffle_buffer_size,
                 load_dataset_fn=load_dataset,
+                max_retries=self.stream_error_retries,
+                retry_backoff_seconds=self.stream_error_retry_backoff_seconds,
+                operation=f"streaming mid-training {partition} data",
             )
             for sample in dataset:
                 if not isinstance(sample, dict):
