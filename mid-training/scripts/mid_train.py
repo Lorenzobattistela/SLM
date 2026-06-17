@@ -43,6 +43,7 @@ from src.evaluation.evaluator import evaluate_model
 from src.model import ModelConfig, TransformerLM
 from src.model.attention import configure_attention_optimization
 from src.training.checkpointing import (
+    find_checkpoint,
     load_checkpoint,
     rotate_checkpoints,
     save_checkpoint,
@@ -179,6 +180,35 @@ def _log_main(state: DistributedState, message: str, *args: Any) -> None:
         LOGGER.info(message, *args)
 
 
+def _initialize_from_pretraining_checkpoint(
+    *,
+    config: dict[str, Any],
+    training_cfg: dict[str, Any],
+    model: torch.nn.Module,
+    device: torch.device,
+    state: DistributedState,
+) -> Path | None:
+    resume_from = training_cfg["checkpointing"].get("resume_from")
+    if not resume_from:
+        return None
+
+    checkpoint_path = find_checkpoint(config, resume_from)
+    load_checkpoint(
+        checkpoint_path,
+        model=model,
+        optimizer=None,
+        scheduler=None,
+        map_location=device,
+        restore_rng=False,
+    )
+    _log_main(
+        state,
+        "Initialized weights from pre-training checkpoint: %s (optimizer/scheduler state discarded)",
+        checkpoint_path,
+    )
+    return checkpoint_path
+
+
 def _write_json(path: str | Path, payload: dict[str, Any]) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -312,6 +342,14 @@ def _run_mid_training(config: dict[str, Any], state: DistributedState) -> None:
         seq_len=model_cfg.context_length,
     )
 
+    _initialize_from_pretraining_checkpoint(
+        config=config,
+        training_cfg=training_cfg,
+        model=model,
+        device=device,
+        state=state,
+    )
+
     if bool(training_cfg.get("compile_model", False)) and hasattr(torch, "compile"):
         model = torch.compile(model)
 
@@ -325,31 +363,6 @@ def _run_mid_training(config: dict[str, Any], state: DistributedState) -> None:
 
     step = 0
     tokens_seen = 0
-
-    # Load weights from pre-training checkpoint (loading weights only, discarding optimizer state)
-    resume_from = training_cfg["checkpointing"].get("resume_from")
-    if resume_from:
-        checkpoint_path = resolve_project_path(resume_from)
-        if checkpoint_path.exists():
-            load_checkpoint(
-                checkpoint_path,
-                model=model,
-                optimizer=None,
-                scheduler=None,
-                map_location=device,
-                restore_rng=False,
-            )
-            _log_main(
-                state,
-                "Initialized weights from pre-training checkpoint: %s (optimizer/scheduler state discarded)",
-                checkpoint_path,
-            )
-        else:
-            _log_main(
-                state,
-                "Pre-training checkpoint not found at %s. Starting with random weights.",
-                checkpoint_path,
-            )
 
     output_dir = resolve_project_path(config["project"]["output_dir"])
     metrics_path = output_dir / "logs" / "metrics.jsonl"
