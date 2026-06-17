@@ -107,15 +107,24 @@ training:
 
   optimizer:
     name: "adamw"
-    learning_rate: 2.5e-4
+    # Continued-pretraining LR: ~1/3 of the 3e-4 pretrain peak. The pretrain run
+    # cosine-decayed to 3.5e-5, so re-warming all the way back to 2.5e-4 (the old
+    # value) shocked the converged weights and caused catastrophic forgetting
+    # (ARC-Easy dropped ~8pts). 1e-4 adapts to the chat distribution without
+    # erasing pretrained knowledge.
+    learning_rate: 1.0e-4
     betas: [0.9, 0.95]
     eps: 1.0e-8
     weight_decay: 0.1
 
   scheduler:
     name: "cosine"
-    warmup_steps: 500
-    min_lr: 3.5e-5
+    # Shorter warmup is enough over the ~2.1k-step run; still long enough to let
+    # the fresh (cold) AdamW second-moment estimates populate before LR peaks.
+    warmup_steps: 200
+    # Decay below the pretrain min so mid-training ends gently and hands a calm
+    # model to SFT.
+    min_lr: 1.0e-5
 
   checkpointing:
     resume_from: "last_pre_trains/gpt_bpe_latest.pt"
