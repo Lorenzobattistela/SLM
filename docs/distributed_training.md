@@ -3,7 +3,7 @@
 The main training path uses PyTorch DistributedDataParallel through `torchrun`.
 
 ```bash
-torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/train_200m_fineweb_edu.yml
+torchrun --standalone --nproc_per_node=2 pre-train/scripts/train.py --run-config pre-train/configs/train_200m_fineweb_edu.yml
 ```
 
 ## How It Works
@@ -19,5 +19,5 @@ torchrun --standalone --nproc_per_node=2 scripts/train.py --run-config configs/t
 - Confirm CUDA is visible with `python -c "import torch; print(torch.cuda.device_count())"`.
 - Use recent NVIDIA drivers and a PyTorch build compiled with CUDA.
 - Set `NCCL_DEBUG=INFO` when diagnosing NCCL startup or communication failures.
-- If `scripts/run_all.py` cannot safely launch DDP, it prints the exact `torchrun` command to run manually.
+- If `pre-train/scripts/run_all.py` cannot safely launch DDP, it prints the exact `torchrun` command to run manually.
 - For local CPU checks, use the debug config rather than the main 2-GPU config.

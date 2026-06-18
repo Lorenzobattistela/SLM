@@ -20,6 +20,10 @@ REQUIRED_SECTIONS = (
 )
 
 
+def _is_multi_source_dataset(dataset: dict[str, Any]) -> bool:
+    return isinstance(dataset.get("sources"), list) and len(dataset["sources"]) > 0
+
+
 def _section(config: dict[str, Any], name: str) -> dict[str, Any]:
     value = config.get(name)
     if not isinstance(value, dict):
@@ -141,22 +145,41 @@ def _require_directory_value(
     return value
 
 
-def validate_run_config(config: dict[str, Any]) -> None:
-    for section in REQUIRED_SECTIONS:
-        _section(config, section)
+def _validate_dataset_section(dataset: dict[str, Any]) -> None:
+    multi_source = _is_multi_source_dataset(dataset)
+    if multi_source:
+        _require_positive_int(dataset, "target_train_tokens", "dataset.target_train_tokens")
+        _require_directory_value(dataset, "cache_dir", "dataset.cache_dir")
+        _require_directory_value(dataset, "processed_dir", "dataset.processed_dir")
+        _require_optional_positive_int(
+            dataset,
+            "tokenize_num_workers",
+            "dataset.tokenize_num_workers",
+        )
+        return
 
-    dataset = _section(config, "dataset")
     _required(dataset, "name", "dataset.name")
     _required(dataset, "split", "dataset.split")
     _required(dataset, "text_column", "dataset.text_column")
     _required(dataset, "streaming", "dataset.streaming")
     _require_positive_int(dataset, "target_train_tokens", "dataset.target_train_tokens")
     _require_positive_int(dataset, "validation_tokens", "dataset.validation_tokens")
+    _require_directory_value(dataset, "cache_dir", "dataset.cache_dir")
+    _require_directory_value(dataset, "raw_dir", "dataset.raw_dir")
+    _require_directory_value(dataset, "processed_dir", "dataset.processed_dir")
     _require_optional_positive_int(
         dataset,
         "tokenize_num_workers",
         "dataset.tokenize_num_workers",
     )
+
+
+def validate_run_config(config: dict[str, Any]) -> None:
+    for section in REQUIRED_SECTIONS:
+        _section(config, section)
+
+    dataset = _section(config, "dataset")
+    _validate_dataset_section(dataset)
 
     tokenizer = _section(config, "tokenizer")
     tokenizer_type = _required(tokenizer, "type", "tokenizer.type")
@@ -182,25 +205,34 @@ def validate_run_config(config: dict[str, Any]) -> None:
         _required(tokenizer, "name", "tokenizer.name")
 
     model = _section(config, "model")
-    target_parameters = _require_positive_int(
-        model,
-        "target_parameters",
-        "model.target_parameters",
-    )
-    min_parameters = _require_positive_int(
-        model,
-        "acceptable_min_parameters",
-        "model.acceptable_min_parameters",
-    )
-    max_parameters = _require_positive_int(
-        model,
-        "acceptable_max_parameters",
-        "model.acceptable_max_parameters",
-    )
-    if not min_parameters <= target_parameters <= max_parameters:
-        raise ConfigError(
-            "model.target_parameters must be inside the acceptable parameter range"
+    has_parameter_budget = any(
+        key in model
+        for key in (
+            "target_parameters",
+            "acceptable_min_parameters",
+            "acceptable_max_parameters",
         )
+    )
+    if has_parameter_budget:
+        target_parameters = _require_positive_int(
+            model,
+            "target_parameters",
+            "model.target_parameters",
+        )
+        min_parameters = _require_positive_int(
+            model,
+            "acceptable_min_parameters",
+            "model.acceptable_min_parameters",
+        )
+        max_parameters = _require_positive_int(
+            model,
+            "acceptable_max_parameters",
+            "model.acceptable_max_parameters",
+        )
+        if not min_parameters <= target_parameters <= max_parameters:
+            raise ConfigError(
+                "model.target_parameters must be inside the acceptable parameter range"
+            )
     expected_model_values = {
         "architecture": "decoder_only_transformer",
         "positional_encoding": "rope",
@@ -276,9 +308,6 @@ def validate_run_config(config: dict[str, Any]) -> None:
         raise ConfigError("training.scheduler.name must be 'cosine'")
 
     _require_directory_value(_section(config, "project"), "output_dir", "project.output_dir")
-    _require_directory_value(dataset, "cache_dir", "dataset.cache_dir")
-    _require_directory_value(dataset, "raw_dir", "dataset.raw_dir")
-    _require_directory_value(dataset, "processed_dir", "dataset.processed_dir")
     _require_directory_value(tokenizer, "save_dir", "tokenizer.save_dir")
     _require_directory_value(
         training,
@@ -317,7 +346,8 @@ def ensure_output_directories(config: dict[str, Any]) -> None:
         _mkdir(project["docs_dir"])
 
     _mkdir(dataset["cache_dir"])
-    _mkdir(dataset["raw_dir"])
+    if dataset.get("raw_dir"):
+        _mkdir(dataset["raw_dir"])
     _mkdir(dataset["processed_dir"])
     _mkdir(tokenizer["save_dir"])
     _mkdir(training["checkpointing"]["save_dir"])

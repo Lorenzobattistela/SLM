@@ -8,7 +8,15 @@ import sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+def _find_project_root(start: Path) -> Path:
+    for parent in (start.parent, *start.parents):
+        if (parent / "pyproject.toml").exists() and (parent / "src").is_dir():
+            return parent
+    raise RuntimeError(f"Could not locate project root from {start}")
+
+
+PROJECT_ROOT = _find_project_root(Path(__file__).resolve())
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -142,7 +150,7 @@ def main() -> None:
         if not bool(tokenizer_cfg.get("train_if_missing", True)):
             raise SuperBPEError(
                 "Configured tokenizer artifact was not found and tokenizer.train_if_missing=false. "
-                "Run `bash tokenizer/run_tokenizer.sh` first or set tokenizer.save_dir to an "
+                "Run `bash pre-train/tokenizer/run_tokenizer.sh` first or set tokenizer.save_dir to an "
                 "existing local tokenizer directory."
             )
 

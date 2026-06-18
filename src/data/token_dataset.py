@@ -137,7 +137,7 @@ class TokenBinDataset:
         self.path = Path(path)
         if not self.path.exists():
             raise FileNotFoundError(
-                f"Token file not found: {self.path}. Run scripts/tokenize_dataset.py first."
+                f"Token file not found: {self.path}. Run pre-train/scripts/tokenize_dataset.py first."
             )
         self.block_size = int(block_size)
         self.vocab_size = int(vocab_size)
@@ -150,6 +150,17 @@ class TokenBinDataset:
                 f"Token file {self.path} has {self.num_tokens} tokens, which is too small "
                 f"for block_size={self.block_size}."
             )
+
+    def close(self) -> None:
+        mmap = getattr(self.tokens, "_mmap", None)
+        if mmap is not None:
+            mmap.close()
+
+    def __enter__(self) -> "TokenBinDataset":
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.close()
 
     def __len__(self) -> int:
         return self.num_positions

@@ -1,0 +1,31 @@
+dataset:
+  name: "UW/olmo-mix-1124-subset-p99"
+  split: "train"
+  text_column: "text"
+  streaming: true
+  cache_dir: "data/cache"
+  selection:
+    shuffle: true
+    seed: 42
+    shuffle_before_filter: true
+    shuffle_buffer_size: 10000
+
+tokenizer:
+  type: "superbpe"
+  vocab_size: 50000
+  min_frequency: 2
+  special_tokens:
+    pad_token: "<pad>"
+    bos_token: "<bos>"
+    eos_token: "<eos>"
+    unk_token: "<unk>"
+  save_dir: "pre-train/artifacts/tokenizer_superbpe_50k_olmo_p99"
+  train_samples: 1000000
+  corpus_chunk_samples: 25000
+  corpus_num_workers: 2
+  max_memory_gb: 48
+  append_eos: true
+  superbpe_stage1_vocab_size: 40000
+  superbpe_num_inherit_merges: 40000
+  allow_unverified_superbpe_backend: false
+  do_not_fallback_to_standard_bpe_silently: true

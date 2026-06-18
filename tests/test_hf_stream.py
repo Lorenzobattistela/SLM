@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import multiprocessing as mp
 from pathlib import Path
+
+import pytest
 
 from src.data import hf_stream
 from src.data.fineweb_edu import write_training_corpus
+
+
+def _requires_fork_process_pool() -> None:
+    if mp.get_start_method() != "fork":
+        pytest.skip("parallel monkeypatch test requires fork-based multiprocessing")
 
 
 def test_iter_dataset_texts_filters_fineweb_edu_quality_fields(monkeypatch) -> None:
@@ -142,6 +150,7 @@ def test_iter_dataset_texts_can_read_one_shard(monkeypatch) -> None:
 
 
 def test_write_training_corpus_parallel_shards(monkeypatch, tmp_path) -> None:
+    _requires_fork_process_pool()
     samples = [{"text": f"sample {index}"} for index in range(6)]
     monkeypatch.setattr(hf_stream, "load_dataset", lambda *args, **kwargs: samples)
 

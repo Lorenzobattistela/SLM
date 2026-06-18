@@ -76,3 +76,15 @@ def test_token_bin_dataset_samples_shifted_windows(tmp_path) -> None:
     assert inputs.shape == (2, 4)
     assert targets.shape == (2, 4)
     assert torch.equal(targets[:, :-1], inputs[:, 1:])
+
+
+def test_token_bin_dataset_closes_memmap_before_unlink(tmp_path) -> None:
+    output_path = tmp_path / "tokens.bin"
+    with TokenBinWriter(output_path, vocab_size=128, target_tokens=10) as writer:
+        writer.write(range(10))
+
+    dataset = TokenBinDataset(output_path, block_size=4, vocab_size=128)
+    dataset.close()
+    output_path.unlink()
+
+    assert not output_path.exists()
