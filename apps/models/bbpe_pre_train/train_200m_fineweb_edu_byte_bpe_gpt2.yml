@@ -1,0 +1,136 @@
+project:
+  name: "llm_200m_fineweb_edu_byte_bpe_gpt2"
+  seed: 42
+  output_dir: "outputs/llm_200m_fineweb_edu_byte_bpe_gpt2"
+  docs_dir: "docs"
+
+dataset:
+  name: "HuggingFaceFW/fineweb-edu"
+  split: "train"
+  text_column: "text"
+  streaming: true
+  target_train_tokens: 4000000000
+  validation_tokens: 10000000
+  validation_salt: "slm-pretrain-v1"
+  cache_dir: "./data/cache"
+  raw_dir: "./data/raw"
+  processed_dir: "./data/processed_byte_bpe_gpt2"
+  tokenize_num_workers: 8
+  filters:
+    language: "en"
+    language_score_min: 0.95
+    score_min: 3.8
+    token_count_min: 200
+    token_count_max: 4096
+  selection:
+    target_custom_tokens: 4000000000
+    shuffle: true
+    prioritize_quality: true
+    quality_buffer_size: 10000
+
+tokenizer:
+  type: "byte_bpe"
+  name: "gpt2"
+  vocab_size: 50257
+  save_dir: "pre-train/artifacts/tokenizer_byte_bpe_gpt2"
+  append_eos: true
+
+model:
+  architecture: "decoder_only_transformer"
+  target_parameters: 200000000
+  acceptable_min_parameters: 195000000
+  acceptable_max_parameters: 205000000
+
+  positional_encoding: "rope"
+  attention: "gqa"
+  flash_attention: true
+  flash_attention_fallback: true
+
+  activation: "swiglu"
+  normalization: "rmsnorm"
+
+  vocab_size: 50257
+  max_seq_len: 2048
+  n_layers: 12
+  d_model: 1024
+  num_attention_heads: 16
+  num_key_value_heads: 4
+  ffn_multiplier: 3.125
+  multiple_of: 64
+  norm_eps: 1.0e-5
+  rope_theta: 10000.0
+  dropout: 0.0
+  tie_embeddings: true
+
+training:
+  distributed:
+    enabled: true
+    backend: "nccl"
+    strategy: "ddp"
+    num_gpus: 2
+
+  precision: "bf16"
+  compile_model: false
+
+  micro_batch_size: 4
+  gradient_accumulation_steps: 16
+  max_steps: null
+  max_tokens: 4000000000
+
+  optimizer:
+    name: "adamw"
+    learning_rate: 3.0e-4
+    betas: [0.9, 0.95]
+    eps: 1.0e-8
+    weight_decay: 0.1
+
+  scheduler:
+    name: "cosine"
+    warmup_steps: 2000
+    min_lr: 3.0e-5
+
+  gradient_clipping:
+    enabled: true
+    max_norm: 1.0
+
+  checkpointing:
+    save_dir: "checkpoints/llm_200m_fineweb_edu_byte_bpe_gpt2"
+    save_every_steps: 2000
+    keep_last_n: 5
+    resume_from: null
+
+evaluation:
+  enabled: true
+  eval_every_steps: 500
+  eval_steps: 100
+  metrics:
+    - "loss"
+    - "perplexity"
+
+logging:
+  log_every_steps: 10
+  use_tensorboard: true
+  tensorboard_dir: "outputs/llm_200m_fineweb_edu_byte_bpe_gpt2/tensorboard"
+  use_wandb: false
+  wandb_project: "llm_200m_fineweb_edu_byte_bpe_gpt2"
+
+plots:
+  enabled: true
+  output_dir: "outputs/llm_200m_fineweb_edu_byte_bpe_gpt2/plots"
+  keep_existing_plots: true
+  generate:
+    - "train_loss"
+    - "validation_loss"
+    - "perplexity"
+    - "train_perplexity"
+    - "learning_rate"
+    - "tokens_seen"
+    - "gradient_norm"
+    - "tokens_per_second"
+    - "samples_per_second"
+    - "step_time_seconds"
+    - "token_progress"
+    - "epoch_equivalent"
+    - "gpu_memory_allocated"
+    - "gpu_memory_reserved"
+    - "gpu_memory_max_allocated"

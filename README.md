@@ -19,6 +19,11 @@ agora funciona como um índice do projeto: cada etapa principal tem sua própria
 pasta com `configs/` e `scripts/`, enquanto `scripts/` guarda utilitários
 transversais.
 
+## Links
+
+- [OneDrive com arquivis .pt e metadados dos modelos](https://brpucrs-my.sharepoint.com/personal/g_stefanello_edu_pucrs_br/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fg%5Fstefanello%5Fedu%5Fpucrs%5Fbr%2FDocuments%2FTrabalho%20profundo%202&ga=1)
+- [Repositório] (https://github.com/Lorenzobattistela/SLM)
+
 ## Estrutura
 
 - `pre-train/`: pré-treinamento FineWeb-Edu, configs de dados/modelo/run,
@@ -94,11 +99,22 @@ transversais.
 
 ### GPT-2 byte-level BPE
 
-![Loss de validação do GPT-2 byte-level BPE](docs/assets/plot_images/bbpe_val_loss.png)
+- Pré treino:
+
+![Loss de validação do GPT-2 byte-level BPE](docs/assets/plot_images/pt_bbpe_validation_loss.png)
+
+- SFT:
+
+![Loss de validação do GPT-2 byte-level BPE](docs/assets/plot_images/sft_bbpe_validation_loss.png)
 
 ### SuperBPE
+- Pré treino:
 
-![Loss de validação do SuperBPE](docs/assets/plot_images/superbpe_val_loss.png)
+![Loss de validação do SuperBPE](docs/assets/plot_images/pt_sbpe_validation_loss.png)
+
+- SFT:
+
+![Loss de validação do SuperBPE](docs/assets/plot_images/sft_sbpe_validation_loss.png)
 
 ## Artefatos
 

@@ -23,8 +23,8 @@ from src.inference.runtime import (  # noqa: E402
 #DEFAULT_RUN_CONFIG = "pre-train/configs/train_200m_fineweb_edu_byte_bpe_gpt2.yml"
 #CONFIG_DEFAULT_CHECKPOINT = "checkpoints/pre_train_finals/bbpe_pre_train.pt"
 
-DEFAULT_RUN_CONFIG = "supervised-fine-tuning/configs/sft_200m_byte_bpe_gpt2.yml"
-CONFIG_DEFAULT_CHECKPOINT = "outputs/etapa2/byte_bpe_gpt2/sft/checkpoints/final.pt"
+DEFAULT_RUN_CONFIG = "/home/gabrielstefanello/faculdade/SLM/apps/models/bbpe_sft/sft_200m_byte_bpe_gpt2.yml"
+CONFIG_DEFAULT_CHECKPOINT = "/home/gabrielstefanello/faculdade/SLM/apps/models/bbpe_sft/final.pt"
 def default_checkpoint_path() -> str:
     candidates = [
         CONFIG_DEFAULT_CHECKPOINT,
