@@ -22,7 +22,7 @@ transversais.
 ## Links
 
 - [OneDrive com arquivis .pt e metadados dos modelos](https://brpucrs-my.sharepoint.com/personal/g_stefanello_edu_pucrs_br/_layouts/15/onedrive.aspx?id=%2Fpersonal%2Fg%5Fstefanello%5Fedu%5Fpucrs%5Fbr%2FDocuments%2FTrabalho%20profundo%202&ga=1)
-- [Repositório] (https://github.com/Lorenzobattistela/SLM)
+- [Repositório](https://github.com/Lorenzobattistela/SLM)
 
 ## Estrutura
 

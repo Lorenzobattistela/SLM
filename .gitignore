@@ -14,3 +14,6 @@ runs/
 *.pt
 *.png
 *.log
+outputs/
+checkpoints/
+artifacts/
